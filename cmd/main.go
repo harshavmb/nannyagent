@@ -28,27 +28,28 @@ func main() {
 			break
 		}
 
-		response, err := a.SendToGeminiAPI(input)
+		//response, err := a.SendToGeminiAPI(input)
+		commands, err := a.GetGenerativeAIResponse(input)
 		if err != nil {
 			log.Printf("Error communicating with Gemini API: %v", err)
 			continue
 		}
 
-		log.Println("Response from Gemini API:", response)
+		log.Println("Response from Gemini API:", commands)
 
-		commands, err := a.ParseCommands(response)
-		if err != nil {
-			log.Printf("Error parsing commands: %v", err)
-			continue
-		}
-
-		log.Printf("Commands to execute: %v", commands)
 		output, err := a.ExecuteCommands(commands)
 		if err != nil {
 			log.Printf("Error executing commands: %v", err)
-			return
+			continue
 		}
 
-		fmt.Println(output)
+		log.Println("Command output:", output)
+
+		finalResponse, err := a.FinalGenerativeAIResponse(input, output)
+		if err != nil {
+			log.Printf("Error communicating with Gemini API: %v", err)
+			continue
+		}
+		log.Println("Final Response from Gemini API:", finalResponse)
 	}
 }

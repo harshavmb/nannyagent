@@ -1,15 +1,17 @@
 package agent
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"net/http"
+	"log"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/google/generative-ai-go/genai"
+	"google.golang.org/api/option"
 )
 
 // Agent struct
@@ -17,21 +19,6 @@ type Agent struct{}
 
 func NewAgent() *Agent {
 	return &Agent{}
-}
-
-type GeminiResponse struct {
-	Candidates []struct {
-		Content struct {
-			Parts []struct {
-				Text string `json:"text"`
-			} `json:"parts"`
-		} `json:"content"`
-	} `json:"candidates"`
-}
-
-// Command struct
-type Command struct {
-	Command string `json:"command"`
 }
 
 func (a *Agent) ExecuteCommand(command string) (string, error) {
@@ -69,51 +56,28 @@ func ParseResponse(response string) []string {
 	return strings.Split(response, "\n")
 }
 
-// ParseCommands parses the response from the Gemini API and extracts the commands
-func (a *Agent) ParseCommands(response string) ([]Command, error) {
-	var geminiResponse GeminiResponse
-	err := json.Unmarshal([]byte(response), &geminiResponse)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal Gemini response JSON: %v", err)
-	}
-
-	var commands []Command
-	for _, candidate := range geminiResponse.Candidates {
-		for _, part := range candidate.Content.Parts {
-			// Extract the JSON string containing the commands
-			var commandWrapper struct {
-				Commands []Command `json:"commands"`
-			}
-			err := json.Unmarshal([]byte(part.Text), &commandWrapper)
-			if err != nil {
-				return nil, fmt.Errorf("failed to unmarshal command JSON: %v", err)
-			}
-			commands = append(commands, commandWrapper.Commands...)
-		}
-	}
-	return commands, nil
-}
-
-// ExecuteCommands executes the given commands and returns the combined output
-func (a *Agent) ExecuteCommands(commands []Command) (string, error) {
+func (a *Agent) ExecuteCommands(commands []string) (string, error) {
 	var output []string
 	var lastPID string
 
-	for _, cmd := range commands {
-		command := cmd.Command
+	for _, command := range commands {
 
 		// Replace <PID> with the lastPID if present
 		if strings.Contains(command, "<PID>") {
 			if lastPID == "" {
-				return "", fmt.Errorf("no PID available for command: %s", command)
+				output = append(output, fmt.Sprintf("no PID available for command: %s", command))
+				continue
 			}
 			command = strings.ReplaceAll(command, "<PID>", lastPID)
 		}
 
+		// Start the command
 		out, err := exec.Command("sh", "-c", command).Output()
 		if err != nil {
-			return "", fmt.Errorf("failed to execute command '%s': %v", command, err)
+			log.Println("Error executing command %: ", err)
+			continue
 		}
+
 		outputStr := string(out)
 		output = append(output, outputStr)
 
@@ -130,39 +94,72 @@ func (a *Agent) ExecuteCommands(commands []Command) (string, error) {
 	return strings.Join(output, "\n"), nil
 }
 
-// SendToGeminiAPI sends the input string to the Gemini API and returns the response
-func (a *Agent) SendToGeminiAPI(input string) (string, error) {
-	token := os.Getenv("GEMINI_API_TOKEN")
-	if token == "" {
-		return "", fmt.Errorf("GEMINI_API_TOKEN environment variable not set")
-	}
+func (a *Agent) GetGenerativeAIResponse(input string) ([]string, error) {
 
-	url := "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + token // Replace with the actual Gemini API endpoint
-	jsonStr := []byte(fmt.Sprintf(`{
-  "contents": [{
-    "parts":[{"text": " Please provide a list of investigative Linux commands to diagnose %s on a server. The commands should be in the following JSON format:\n\n{ \"commands\": [ {\"command\": \"<command1>\"}, {\"command\": \"<command2>\"}, {\"command\": \"<command3>\"} ] }"}]
-    }]
-   }`, input))
+	ctx := context.Background()
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
+	// Access your API key as an environment variable
+	genaiClient, err := genai.NewClient(context.Background(), option.WithAPIKey(os.Getenv("GEMINI_API_TOKEN")))
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("failed to create Generative AI client: %v", err)
 	}
+	defer genaiClient.Close()
 
-	req.Header.Set("Content-Type", "application/json")
-	//req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	model := genaiClient.GenerativeModel("gemini-1.5-flash")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	// Ask the model to respond with JSON.
+	model.ResponseMIMEType = "application/json"
+
+	// Specify the schema.
+	model.ResponseSchema = &genai.Schema{
+		Type:  genai.TypeArray,
+		Items: &genai.Schema{Type: genai.TypeString},
+	}
+	resp, err := model.GenerateContent(ctx, genai.Text(fmt.Sprintf("Run a list investigative Linux commands to diagnose %s on a server. If binaries are from sysstat, collect metrics for 5 seconds every 1 sec interval", input)))
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("failed to create Generative AI client: %v", err)
 	}
-	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	var recipes []string
+
+	for _, part := range resp.Candidates[0].Content.Parts {
+		if txt, ok := part.(genai.Text); ok {
+			if err := json.Unmarshal([]byte(txt), &recipes); err != nil {
+				log.Fatal(err)
+			}
+
+		}
+	}
+	return recipes, nil
+}
+
+func (a *Agent) FinalGenerativeAIResponse(input, output string) (string, error) {
+
+	ctx := context.Background()
+
+	// Access your API key as an environment variable
+	genaiClient, err := genai.NewClient(context.Background(), option.WithAPIKey(os.Getenv("GEMINI_API_TOKEN")))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create Generative AI client: %v", err)
+	}
+	defer genaiClient.Close()
+
+	model := genaiClient.GenerativeModel("gemini-1.5-flash")
+
+	// Ask the model to respond with JSON.
+	model.ResponseMIMEType = "application/json"
+
+	resp, err := model.GenerateContent(ctx, genai.Text(fmt.Sprintf("For given input commands %s. Output from the server %s.", input, output)))
+	if err != nil {
+		return "", fmt.Errorf("failed to create Generative AI client: %v", err)
 	}
 
-	return string(body), nil
+	var response string
+
+	for _, part := range resp.Candidates[0].Content.Parts {
+		if txt, ok := part.(genai.Text); ok {
+			response += string(txt)
+		}
+	}
+	return response, nil
 }
