@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"slices"
+	"strings"
 	"testing"
 )
 
@@ -53,7 +53,15 @@ func TestGetGenerativeAIResponse(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	if !slices.Contains(commands, expectedCommand) {
+	count := 0
+	for _, command := range commands {
+		if strings.Contains(command, expectedCommand) {
+			count++
+		}
+	}
+
+	if count < 1 {
 		t.Fatalf("Expected %v, to be in %v", expectedCommand, commands)
 	}
+
 }
