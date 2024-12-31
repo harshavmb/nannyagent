@@ -37,6 +37,12 @@ func main() {
 
 		log.Println("Response from Gemini API:", commands)
 
+		// sometimes the response from the API is non array, so we need to handle that
+		if len(commands) < 1 || commands == nil {
+			log.Fatalf("No valid commands received from Gemini API")
+			return
+		}
+
 		output, err := a.ExecuteCommands(commands)
 		if err != nil {
 			log.Printf("Error executing commands: %v", err)
