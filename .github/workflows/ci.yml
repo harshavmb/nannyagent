@@ -26,3 +26,5 @@ jobs:
 
     - name: Run tests
       run: go test ./...
+      env:
+        GEMINI_API_TOKEN: ${{ secrets.GEMINI_API_TOKEN }}
