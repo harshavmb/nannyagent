@@ -46,7 +46,7 @@ func TestGetGenerativeAIResponse(t *testing.T) {
 	input := "what is the OS distro?"
 
 	// Mock the Gemini API response
-	expectedCommand := "cat /etc/os-release"
+	expectedCommand := "/etc/os-release"
 
 	commands, err := a.GetGenerativeAIResponse(input)
 	if err != nil {
