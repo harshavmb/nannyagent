@@ -12,8 +12,21 @@ import (
 func main() {
 	a := agent.NewAgent()
 
+	hostInfo, err := a.CollectHostInfo()
+	if err != nil {
+		log.Fatalf("Error collecting host info: %v", err)
+		return
+	}
+
+	userInfo, err := a.GetUserInfo()
+	if err != nil {
+		log.Fatalf("Error getting user info: %v", err)
+		return
+	}
+
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("Welcome to the Go Agent. Type your command:")
+	fmt.Printf("Welcome %s to the NannyAgent.\nYour Host information:%v\n", userInfo, fmt.Sprintf("%+v", hostInfo))
+	fmt.Println("Type your command: Type 'exit' to quit")
 
 	for {
 		fmt.Print("> ")
@@ -28,34 +41,40 @@ func main() {
 			break
 		}
 
-		//response, err := a.SendToGeminiAPI(input)
-		commands, err := a.GetGenerativeAIResponse(input)
+		status, err := a.GetStatus()
 		if err != nil {
-			log.Printf("Error communicating with Gemini API: %v", err)
-			continue
+			log.Fatalf("Error getting status from API: %v", err)
 		}
+		log.Println("Status from API:", status)
 
-		log.Println("Response from Gemini API:", commands)
+		// //response, err := a.SendToGeminiAPI(input)
+		// commands, err := a.GetGenerativeAIResponse(input)
+		// if err != nil {
+		// 	log.Printf("Error communicating with Gemini API: %v", err)
+		// 	continue
+		// }
 
-		// sometimes the response from the API is non array, so we need to handle that
-		if len(commands) < 1 || commands == nil {
-			log.Fatalf("No valid commands received from Gemini API")
-			return
-		}
+		// log.Println("Response from Gemini API:", commands)
 
-		output, err := a.ExecuteCommands(commands)
-		if err != nil {
-			log.Printf("Error executing commands: %v", err)
-			continue
-		}
+		// // sometimes the response from the API is non array, so we need to handle that
+		// if len(commands) < 1 || commands == nil {
+		// 	log.Fatalf("No valid commands received from Gemini API")
+		// 	return
+		// }
 
-		log.Println("Command output:", output)
+		// output, err := a.ExecuteCommands(commands)
+		// if err != nil {
+		// 	log.Printf("Error executing commands: %v", err)
+		// 	continue
+		// }
 
-		finalResponse, err := a.FinalGenerativeAIResponse(input, output)
-		if err != nil {
-			log.Printf("Error communicating with Gemini API: %v", err)
-			continue
-		}
-		log.Println("Final Response from Gemini API:", finalResponse)
+		// log.Println("Command output:", output)
+
+		// finalResponse, err := a.FinalGenerativeAIResponse(input, output)
+		// if err != nil {
+		// 	log.Printf("Error communicating with Gemini API: %v", err)
+		// 	continue
+		// }
+		// log.Println("Final Response from Gemini API:", finalResponse)
 	}
 }
