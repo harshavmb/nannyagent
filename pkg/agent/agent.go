@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -17,7 +18,13 @@ import (
 )
 
 // Agent struct
-type Agent struct{}
+type Agent struct {
+	ID      string
+	APIURL  string
+	APIKey  string
+	ChatID  string
+	History []map[string]string
+}
 
 func NewAgent() *Agent {
 	return &Agent{}
@@ -62,7 +69,7 @@ func (a *Agent) ExecuteCommands(commands []string) (string, error) {
 }
 
 func (a *Agent) GetStatus() (string, error) {
-	nannyClient, err := api.NewNannyClient()
+	nannyClient, err := api.NewNannyClient(a.APIURL, a.APIKey)
 	if err != nil {
 		return "", err
 	}
@@ -118,7 +125,7 @@ func getLocalIP() (string, error) {
 }
 
 func (a *Agent) GetUserInfo() (string, error) {
-	nannyClient, err := api.NewNannyClient()
+	nannyClient, err := api.NewNannyClient(a.APIURL, a.APIKey)
 	if err != nil {
 		return "", err
 	}
@@ -148,32 +155,254 @@ func (a *Agent) GetUserInfo() (string, error) {
 	return result["name"], nil
 }
 
-// func (a *Agent) GetGenerativeAIResponse(input string) ([]string, error) {
-// 	geminiClient, err := api.NewGeminiClient()
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer geminiClient.Close()
+func (a *Agent) CollectMetadata() (map[string]string, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get hostname: %v", err)
+	}
 
-// 	response, err := geminiClient.GetGenerativeAIResponse(input)
-// 	if err != nil {
-// 		return nil, err
-// 	}
+	ip, err := getLocalIP()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get IP address: %v", err)
+	}
 
-// 	return response, nil
-// }
+	// Get kernel version
+	var uname unix.Utsname
+	if err := unix.Uname(&uname); err != nil {
+		return nil, fmt.Errorf("error getting kernel version: %v", err)
+	}
 
-// func (a *Agent) FinalGenerativeAIResponse(input, output string) (string, error) {
-// 	geminiClient, err := api.NewGeminiClient()
-// 	if err != nil {
-// 		return "", err
-// 	}
-// 	defer geminiClient.Close()
+	// Get OS version
+	osVersion := string(uname.Version[:])
 
-// 	response, err := geminiClient.FinalGenerativeAIResponse(input, output)
-// 	if err != nil {
-// 		return "", err
-// 	}
+	metadata := map[string]string{
+		"hostname":       strings.TrimSpace(hostname),
+		"ip_address":     ip,
+		"kernel_version": strings.TrimSpace(string(uname.Release[:])),
+		"os_version":     osVersion,
+	}
 
-// 	return response, nil
-// }
+	return metadata, nil
+}
+
+func (a *Agent) SaveMetadata(metadata map[string]string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get user home directory: %v", err)
+	}
+
+	nannyDir := filepath.Join(homeDir, ".nannyagent")
+	if err := os.MkdirAll(nannyDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .nannyagent directory: %v", err)
+	}
+
+	metadataFile := filepath.Join(nannyDir, "metadata.json")
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %v", err)
+	}
+
+	if err := os.WriteFile(metadataFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write metadata file: %v", err)
+	}
+
+	return nil
+}
+
+func (a *Agent) LoadMetadata() (map[string]string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user home directory: %v", err)
+	}
+
+	metadataFile := filepath.Join(homeDir, ".nannyagent", "metadata.json")
+	data, err := os.ReadFile(metadataFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var metadata map[string]string
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal metadata: %v", err)
+	}
+
+	return metadata, nil
+}
+
+func (a *Agent) RegisterAgent() error {
+	metadata, err := a.CollectMetadata()
+	if err != nil {
+		return err
+	}
+
+	nannyClient, err := api.NewNannyClient(a.APIURL, a.APIKey)
+	if err != nil {
+		return err
+	}
+	defer nannyClient.Close()
+
+	resp, err := nannyClient.RegisterAgent(metadata)
+	if err != nil {
+		return err
+	}
+
+	id, ok := resp["id"]
+	if !ok {
+		return fmt.Errorf("no ID returned from server")
+	}
+
+	a.ID = id
+	metadata["id"] = a.ID
+
+	if err := a.SaveMetadata(metadata); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *Agent) Initialize(apiURL, apiKey string) error {
+	a.APIURL = apiURL
+	a.APIKey = apiKey
+
+	metadata, err := a.LoadMetadata()
+	if err != nil {
+		if os.IsNotExist(err) {
+			if err := a.RegisterAgent(); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	} else {
+		a.ID = metadata["id"]
+	}
+
+	// Load and display chat history
+	if err := a.LoadAndDisplayChatHistory(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (a *Agent) LoadAndDisplayChatHistory() error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get user home directory: %v", err)
+	}
+
+	nannyDir := filepath.Join(homeDir, ".nannyagent")
+	files, err := os.ReadDir(nannyDir)
+	if err != nil {
+		return fmt.Errorf("failed to read .nannyagent directory: %v", err)
+	}
+
+	var chatFiles []string
+	for _, file := range files {
+		if strings.HasPrefix(file.Name(), "chat_") {
+			chatFiles = append(chatFiles, file.Name())
+		}
+	}
+
+	if len(chatFiles) == 0 {
+		fmt.Println("No chat history found.")
+		return nil
+	}
+
+	fmt.Println("Chat History:")
+	for _, chatFile := range chatFiles {
+		data, err := os.ReadFile(filepath.Join(nannyDir, chatFile))
+		if err != nil {
+			return fmt.Errorf("failed to read chat file %s: %v", chatFile, err)
+		}
+
+		var history []map[string]string
+		if err := json.Unmarshal(data, &history); err != nil {
+			return fmt.Errorf("failed to unmarshal chat history: %v", err)
+		}
+
+		if len(history) > 0 {
+			fmt.Printf("Chat ID: %s, Title: %s\n", chatFile, history[0]["prompt"])
+		}
+
+		// // Fetch chat history from the API
+		// if err := a.FetchChatHistory(chatFile); err != nil {
+		// 	return err
+		// }
+	}
+
+	return nil
+}
+
+func (a *Agent) StartChat(prompt string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get user home directory: %v", err)
+	}
+
+	nannyDir := filepath.Join(homeDir, ".nannyagent")
+	if err := os.MkdirAll(nannyDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .nannyagent directory: %v", err)
+	}
+
+	// If ChatID is empty, create a new chat
+	if a.ChatID == "" {
+		history := []map[string]string{
+			{"prompt": prompt, "response": "", "type": "text"},
+		}
+
+		payload := map[string]interface{}{
+			"agent_id": a.ID,
+			"history":  history,
+		}
+
+		nannyClient, err := api.NewNannyClient(a.APIURL, a.APIKey)
+		if err != nil {
+			return err
+		}
+		defer nannyClient.Close()
+	}
+
+	resp, err := nannyClient.StartChat(payload)
+	if err != nil {
+		return err
+	}
+
+	chatID, ok := resp["id"]
+	if !ok {
+		return fmt.Errorf("no chat id returned from server")
+	}
+
+	chatFile := filepath.Join(nannyDir, fmt.Sprintf("chat_%s.json", chatID))
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal chat: %v", err)
+	}
+
+	if err := os.WriteFile(chatFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write chat file: %v", err)
+	}
+
+	return nil
+}
+
+func (a *Agent) FetchChatHistory(chatID string) error {
+	nannyClient, err := api.NewNannyClient(a.APIURL, a.APIKey)
+	if err != nil {
+		return err
+	}
+	defer nannyClient.Close()
+
+	result, err := nannyClient.GetChat(chatID)
+	if err != nil {
+		return err
+	}
+
+	history, ok := result["history"].([]interface{})
+	if !ok {
+		return fmt.Errorf("invalid chat history format")
+	}
+
+	fmt.Printf("Chat ID: %s, History: %v\n", chatID, history)
+	return nil
+}
