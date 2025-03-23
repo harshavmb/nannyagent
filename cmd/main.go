@@ -78,12 +78,6 @@ func main() {
 			break
 		}
 
-		status, err := a.GetStatus()
-		if err != nil {
-			log.Fatalf("Error getting status from API: %v", err)
-		}
-		log.Println("Status from API:", status)
-
 		// Start chat with the input prompt
 		err = a.StartChat(input)
 		if err != nil {

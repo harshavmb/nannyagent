@@ -104,7 +104,7 @@ func (c *NannyClient) StartChat(chat map[string]interface{}) (map[string]string,
 	return result, nil
 }
 
-func (c *NannyClient) AddPromptResponse(chatID string, promptResponse map[string]string) (map[string]string, error) {
+func (c *NannyClient) AddPromptResponse(chatID string, promptResponse map[string]string) (map[string]interface{}, error) {
 	resp, err := c.DoRequest(fmt.Sprintf("/api/chat/%s", chatID), "PUT", promptResponse)
 	if err != nil {
 		return nil, err
@@ -115,7 +115,7 @@ func (c *NannyClient) AddPromptResponse(chatID string, promptResponse map[string
 		return nil, fmt.Errorf("failed to add prompt response: %s", resp.Status)
 	}
 
-	var result map[string]string
+	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode chat initiation response: %s", err)
 	}
