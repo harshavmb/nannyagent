@@ -3,10 +3,8 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,6 +55,44 @@ func (a *Agent) metadataToString() (string, error) {
 }
 
 func (a *Agent) ExecuteCommands(commands []string) (string, error) {
+	var output []string
+	var lastPID string
+
+	for _, command := range commands {
+
+		// Replace <PID> with the lastPID if present
+		if strings.Contains(command, "<PID>") {
+			if lastPID == "" {
+				output = append(output, fmt.Sprintf("no PID available for command: %s", command))
+				continue
+			}
+			command = strings.ReplaceAll(command, "<PID>", lastPID)
+		}
+
+		// Start the command
+		out, err := exec.Command("sh", "-c", command).Output()
+		if err != nil {
+			log.Println("Error executing command %: ", err)
+			continue
+		}
+
+		outputStr := string(out)
+		output = append(output, outputStr)
+
+		// Extract PID from the output if needed
+		if strings.Contains(command, "ps aux") {
+			re := regexp.MustCompile(`\s+(\d+)\s+`)
+			match := re.FindStringSubmatch(outputStr)
+			if len(match) > 1 {
+				lastPID = match[1]
+			}
+		}
+	}
+
+	return strings.Join(output, "\n"), nil
+}
+
+func (a *Agent) ShareOutput(commandOutput string) (string, error) {
 	var output []string
 	var lastPID string
 
@@ -150,35 +186,37 @@ func getLocalIP() (string, error) {
 	return "", fmt.Errorf("no IP address found")
 }
 
-func (a *Agent) GetUserInfo() (string, error) {
+func (a *Agent) GetUserInfo() (map[string]string, error) {
 	nannyClient, err := api.NewNannyClient(a.APIURL, a.APIKey)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer nannyClient.Close()
 
-	resp, err := nannyClient.DoRequest("/api/user-auth-token", "GET", nil)
+	userID, err := nannyClient.GetUserID()
 	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get user auth token from server: %s", resp.Status)
+		return nil, err
 	}
 
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
+	if userID == "" {
+		return nil, fmt.Errorf("no user ID found")
+	}
+
+	result, err := nannyClient.GetUserInfo(userID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	var result map[string]string
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", err
+	if result == nil {
+		return nil, fmt.Errorf("no user info found")
 	}
 
-	return result["name"], nil
+	_, ok := result["name"] // Check if name is present
+	if !ok {
+		return nil, fmt.Errorf("no name found in user info")
+	}
+
+	return result, nil
 }
 
 func (a *Agent) CollectMetadata() (map[string]string, error) {
@@ -470,7 +508,7 @@ func (a *Agent) StartChat(prompt string) error {
 		fmt.Printf("Command output: %s\n", commandOutput)
 
 		// Send command output to API
-		//a.ShareOutput(commandOutput)
+		a.ShareOutput(commandOutput)
 		prompt = commandOutput
 		a.State = WaitingForDiagnosis // Transition to waiting for diagnosis
 

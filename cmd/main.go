@@ -41,7 +41,7 @@ func main() {
 	}
 
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("Welcome %s to the NannyAgent.\nYour Host information:%v\n", userInfo, fmt.Sprintf("%+v", hostInfo))
+	fmt.Printf("Welcome %s to the NannyAgent.\nYour Host information:%v\n", userInfo["name"], fmt.Sprintf("%+v", hostInfo))
 	fmt.Println("Type your command: Type 'exit' to quit")
 
 	// Channel to signal when to stop the status checker

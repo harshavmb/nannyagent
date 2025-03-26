@@ -41,7 +41,7 @@ func (c *NannyClient) DoRequest(endpoint string, method string, payload interfac
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
+	req.Header.Set("X-NANNYAPI-Key", c.APIKey)
 
 	client := &http.Client{}
 	return client.Do(req)
@@ -64,6 +64,44 @@ func (c *NannyClient) CheckStatus() (string, error) {
 	}
 
 	return result["status"], nil
+}
+
+func (c *NannyClient) GetUserID() (string, error) {
+	resp, err := c.DoRequest("/api/user-auth-token", "GET", nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to get user ID from server: %s", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to get user ID from server: %s", resp.Status)
+	}
+
+	var result string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode user ID response: %s", err)
+	}
+
+	return result, nil
+}
+
+func (c *NannyClient) GetUserInfo(userID string) (map[string]string, error) {
+	resp, err := c.DoRequest(fmt.Sprintf("/api/user/%s", userID), "GET", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user info from server: %s", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get user info from server: %s", resp.Status)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode user info response: %s", err)
+	}
+
+	return result, nil
 }
 
 func (c *NannyClient) RegisterAgent(metadata map[string]string) (map[string]string, error) {
