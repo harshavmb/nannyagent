@@ -92,44 +92,6 @@ func (a *Agent) ExecuteCommands(commands []string) (string, error) {
 	return strings.Join(output, "\n"), nil
 }
 
-func (a *Agent) ShareOutput(commandOutput string) (string, error) {
-	var output []string
-	var lastPID string
-
-	for _, command := range commands {
-
-		// Replace <PID> with the lastPID if present
-		if strings.Contains(command, "<PID>") {
-			if lastPID == "" {
-				output = append(output, fmt.Sprintf("no PID available for command: %s", command))
-				continue
-			}
-			command = strings.ReplaceAll(command, "<PID>", lastPID)
-		}
-
-		// Start the command
-		out, err := exec.Command("sh", "-c", command).Output()
-		if err != nil {
-			log.Println("Error executing command %: ", err)
-			continue
-		}
-
-		outputStr := string(out)
-		output = append(output, outputStr)
-
-		// Extract PID from the output if needed
-		if strings.Contains(command, "ps aux") {
-			re := regexp.MustCompile(`\s+(\d+)\s+`)
-			match := re.FindStringSubmatch(outputStr)
-			if len(match) > 1 {
-				lastPID = match[1]
-			}
-		}
-	}
-
-	return strings.Join(output, "\n"), nil
-}
-
 func (a *Agent) GetStatus() (string, error) {
 	nannyClient, err := api.NewNannyClient(a.APIURL, a.APIKey)
 	if err != nil {
@@ -398,6 +360,10 @@ func (a *Agent) LoadAndDisplayChatHistory() error {
 	return nil
 }
 
+var promptType = "text"
+var commandsToExecute []string
+var commandOutput string
+
 func (a *Agent) StartChat(prompt string) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -415,10 +381,6 @@ func (a *Agent) StartChat(prompt string) error {
 	}
 	defer nannyClient.Close()
 
-	var promptType = "text"
-	var commandsToExecute []string
-	var commandOutput string
-
 	// If ChatID is empty, create a new chat
 	if a.ChatID == "" {
 		metadataString, err := a.metadataToString()
@@ -426,7 +388,7 @@ func (a *Agent) StartChat(prompt string) error {
 			return err
 		}
 
-		initialPrompt := fmt.Sprintf("Agent metadata: %s.", metadataString)
+		initialPrompt := fmt.Sprintf("Agent metadata: %s. User prompt: %s", metadataString, prompt)
 
 		history := []map[string]string{
 			{"prompt": initialPrompt, "response": "", "type": promptType},
@@ -447,6 +409,10 @@ func (a *Agent) StartChat(prompt string) error {
 			return fmt.Errorf("no chat id returned from server")
 		}
 
+		a.ChatID = chatID
+		a.History = history
+		a.State = WaitingForCommands // Transition to waiting for commands
+
 		chatFile := filepath.Join(nannyDir, fmt.Sprintf("chat_%s.json", chatID))
 		data, err := json.Marshal(payload)
 		if err != nil {
@@ -457,138 +423,148 @@ func (a *Agent) StartChat(prompt string) error {
 			return fmt.Errorf("failed to write chat file: %v", err)
 		}
 
-		a.ChatID = chatID
-		a.History = history
-		a.State = WaitingForCommands // Transition to waiting for commands
+		return a.StartChat(prompt)
 	}
 
-	// Handle subsequent prompts based on the agent's state
 	switch a.State {
+	case WaitingForPrompt:
+		return a.handleWaitingForPrompt(prompt, nannyClient)
+
 	case WaitingForCommands:
-		promptType = "commands"
-		payload := map[string]string{
-			"prompt": prompt,
-			"type":   promptType,
-		}
-
-		resp, err := nannyClient.AddPromptResponse(a.ChatID, payload)
-		if err != nil {
-			return err
-		}
-		history := resp["history"].([]interface{})
-
-		// Type assert to map[string]interface{}
-		lastHistory, ok := history[len(history)-1].(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("failed to assert history type")
-		}
-
-		// Convert map[string]interface{} to map[string]string
-		stringMap := make(map[string]string)
-		for k, v := range lastHistory {
-			stringMap[k] = fmt.Sprint(v) // Convert interface{} to string
-		}
-		a.History = append(a.History, stringMap)
-
-		// Extract commands from the response
-		commandsStr, ok := lastHistory["response"].(string)
-		if ok {
-			commandsToExecute = strings.Split(commandsStr, "\n")
-			a.State = ExecutingCommands // Transition to executing commands
-		} else {
-			return fmt.Errorf("commands not found in response")
-		}
-
-		// Execute commands immediately
-		commandOutput, err = a.ExecuteCommands(commandsToExecute)
-		if err != nil {
-			fmt.Printf("Error executing commands: %v\n", err)
-		}
-
-		fmt.Printf("Command output: %s\n", commandOutput)
-
-		// Send command output to API
-		a.ShareOutput(commandOutput)
-		prompt = commandOutput
-		a.State = WaitingForDiagnosis // Transition to waiting for diagnosis
-
-		return nil
+		return a.handleWaitingForCommands(prompt, nannyClient)
 
 	case ExecutingCommands:
-		// This state should not be directly entered by user prompt
-		return fmt.Errorf("invalid state: ExecutingCommands")
+		return a.handleExecutingCommands(commandsToExecute)
 
 	case WaitingForDiagnosis:
-		promptType = "text"
-		payload := map[string]string{
-			"prompt": prompt,
-			"type":   promptType,
-		}
-
-		resp, err := nannyClient.AddPromptResponse(a.ChatID, payload)
-		if err != nil {
-			return err
-		}
-
-		history, ok := resp["history"].([]interface{})
-		if !ok {
-			return fmt.Errorf("invalid history format")
-		}
-
-		lastHistory, ok := history[len(history)-1].(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("failed to assert history type")
-		}
-
-		// Convert map[string]interface{} to map[string]string
-		stringMap := make(map[string]string)
-		for k, v := range lastHistory {
-			stringMap[k] = fmt.Sprint(v) // Convert interface{} to string
-		}
-
-		a.History = append(a.History, stringMap)
-		a.State = WaitingForPrompt // Transition back to waiting for prompt
-
-		return nil
-
-	case WaitingForPrompt:
-		// Handle user prompt
-		promptType = "text"
-		payload := map[string]string{
-			"prompt": prompt,
-			"type":   promptType,
-		}
-
-		resp, err := nannyClient.AddPromptResponse(a.ChatID, payload)
-		if err != nil {
-			return err
-		}
-
-		history, ok := resp["history"].([]interface{})
-		if !ok {
-			return fmt.Errorf("invalid history format")
-		}
-
-		lastHistory, ok := history[len(history)-1].(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("failed to assert history type")
-		}
-
-		// Convert map[string]interface{} to map[string]string
-		stringMap := make(map[string]string)
-		for k, v := range lastHistory {
-			stringMap[k] = fmt.Sprint(v) // Convert interface{} to string
-		}
-
-		a.History = append(a.History, stringMap)
-		a.State = WaitingForCommands // Transition to waiting for commands
-
-		return nil
+		return a.handleWaitingForDiagnosis(commandOutput, nannyClient)
 
 	default:
 		return fmt.Errorf("invalid agent state")
 	}
+}
 
+func (a *Agent) handleWaitingForPrompt(prompt string, nannyClient *api.NannyClient) error {
+	promptType := "text"
+	payload := map[string]string{
+		"prompt": prompt,
+		"type":   promptType,
+	}
+
+	resp, err := nannyClient.AddPromptResponse(a.ChatID, payload)
+	if err != nil {
+		return err
+	}
+
+	history, ok := resp["history"].([]interface{})
+	if !ok {
+		return fmt.Errorf("invalid history format")
+	}
+
+	lastHistory, ok := history[len(history)-1].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("failed to assert history type")
+	}
+
+	// Convert map[string]interface{} to map[string]string
+	stringMap := make(map[string]string)
+	for k, v := range lastHistory {
+		stringMap[k] = fmt.Sprint(v) // Convert interface{} to string
+	}
+	a.History = append(a.History, stringMap)
+
+	a.State = WaitingForCommands // Transition to waiting for commands
+	return a.StartChat(prompt)
+}
+
+func (a *Agent) handleWaitingForCommands(prompt string, nannyClient *api.NannyClient) error {
+	promptType := "commands"
+	payload := map[string]string{
+		"prompt": prompt,
+		"type":   promptType,
+	}
+
+	resp, err := nannyClient.AddPromptResponse(a.ChatID, payload)
+	if err != nil {
+		return err
+	}
+
+	history, ok := resp["history"].([]interface{})
+	if !ok {
+		return fmt.Errorf("invalid history format")
+	}
+
+	lastHistory, ok := history[len(history)-1].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("failed to assert history type")
+	}
+
+	// Convert map[string]interface{} to map[string]string
+	stringMap := make(map[string]string)
+	for k, v := range lastHistory {
+		stringMap[k] = fmt.Sprint(v) // Convert interface{} to string
+	}
+	a.History = append(a.History, stringMap)
+
+	// Extract commands from the response
+	commandsStr, ok := lastHistory["response"].(string)
+	if ok {
+		commandsToExecute = strings.Split(commandsStr, "\n")
+		a.State = ExecutingCommands // Transition to executing commands
+	} else {
+		return fmt.Errorf("commands not found in response")
+	}
+
+	return a.StartChat(prompt)
+}
+
+func (a *Agent) handleExecutingCommands(commandsToExecute []string) error {
+	var err error
+
+	// Execute commands immediately
+	commandOutput, err = a.ExecuteCommands(commandsToExecute)
+	if err != nil {
+		fmt.Printf("Error executing commands: %v\n", err)
+	}
+
+	a.State = WaitingForDiagnosis // Transition to waiting for diagnosis
+	return a.StartChat(commandOutput)
+}
+
+func (a *Agent) handleWaitingForDiagnosis(commandOutput string, nannyClient *api.NannyClient) error {
+	promptType := "text"
+	payload := map[string]string{
+		"prompt": commandOutput,
+		"type":   promptType,
+	}
+
+	fmt.Printf("Payload is: %s\n", payload["prompt"])
+
+	resp, err := nannyClient.AddPromptResponse(a.ChatID, payload)
+	if err != nil {
+		return err
+	}
+
+	history, ok := resp["history"].([]interface{})
+	if !ok {
+		return fmt.Errorf("invalid history format")
+	}
+
+	lastHistory, ok := history[len(history)-1].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("failed to assert history type")
+	}
+
+	// Convert map[string]interface{} to map[string]string
+	stringMap := make(map[string]string)
+	for k, v := range lastHistory {
+		stringMap[k] = fmt.Sprint(v) // Convert interface{} to string
+	}
+	a.History = append(a.History, stringMap)
+
+	a.State = WaitingForPrompt // Transition back to waiting for prompt
+	//return a.StartChat("status")
+	return nil
 }
 
 func (a *Agent) FetchChatHistory(chatID string) error {

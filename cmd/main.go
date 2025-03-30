@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	apiURLFlag := flag.String("api-url", "https://nannyai.harshanu.space", "API URL")
+	apiURLFlag := flag.String("api-url", "https://api.nannyai.dev", "API URL")
 	flag.Parse()
 
 	apiKey := os.Getenv("NANNY_API_KEY")
