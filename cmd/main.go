@@ -6,96 +6,115 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
+	"strings"
 
 	"github.com/harshavmb/nannyagent/pkg/agent"
 )
 
-func main() {
-	apiURLFlag := flag.String("api-url", "https://api.nannyai.dev", "API URL")
+var (
+	apiURL  string
+	apiKey  string
+	prompt  string
+	offline bool
+	version = "1.0.0"
+)
+
+func init() {
+	flag.StringVar(&apiURL, "api-url", "https://api.nannyai.dev", "NannyAI API URL")
+	flag.StringVar(&apiKey, "api-key", "", "NannyAI API Key")
+	flag.StringVar(&prompt, "prompt", "", "Initial diagnostic prompt")
+	flag.BoolVar(&offline, "offline", false, "Run in offline mode")
 	flag.Parse()
 
-	apiKey := os.Getenv("NANNY_API_KEY")
+	// Check if API key is provided via environment variable
 	if apiKey == "" {
-		log.Fatalf("NANNY_API_KEY environment variable not set")
-		return
+		apiKey = os.Getenv("NANNY_API_KEY")
+	}
+}
+
+func main() {
+	if !offline && apiKey == "" {
+		log.Fatal("API key must be provided either via -api-key flag or NANNY_API_KEY environment variable")
 	}
 
 	a := agent.NewAgent()
-
-	// Initialize the agent
-	if err := a.Initialize(*apiURLFlag, apiKey); err != nil {
-		log.Fatalf("Error initializing agent: %v", err)
-	}
-
-	hostInfo, err := a.CollectHostInfo()
-	if err != nil {
-		log.Fatalf("Error collecting host info: %v", err)
-		return
-	}
-
-	userInfo, err := a.GetUserInfo()
-	if err != nil {
-		log.Fatalf("Error getting user info: %v", err)
-		return
-	}
-
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("Welcome %s to the NannyAgent.\nYour Host information:%v\n", userInfo["name"], fmt.Sprintf("%+v", hostInfo))
-	fmt.Println("Type your command: Type 'exit' to quit")
-
-	// Channel to signal when to stop the status checker
-	stopChan := make(chan struct{})
-
-	// Start the status checker in the background
-	go func() {
-		for {
-			select {
-			case <-stopChan:
-				return
-			default:
-				if !checkAPIStatus(a) {
-					fmt.Println("API is unavailable after 3 retries. Exiting...")
-					close(stopChan)
-					os.Exit(1)
-				}
-				time.Sleep(10 * time.Second) // Adjust the interval as needed
-			}
+	if err := a.Initialize(apiURL, apiKey); err != nil {
+		log.Printf("Warning: Agent initialization failed: %v\n", err)
+		if !offline {
+			log.Fatal("Cannot continue in online mode due to initialization failure")
 		}
-	}()
+	}
+
+	// Print agent information
+	fmt.Printf("NannyAgent v%s\n", version)
+	fmt.Printf("Mode: %s\n", map[bool]string{true: "Offline", false: "Online"}[offline || a.Offline])
+
+	// If prompt was provided via command line, handle it and exit
+	if prompt != "" {
+		if err := a.StartDiagnostic(prompt); err != nil {
+			log.Fatalf("Diagnostic failed: %v", err)
+		}
+		return
+	}
+
+	// Interactive mode
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Println("\nEnter your diagnostic queries (type 'exit' to quit, 'help' for commands):")
 
 	for {
 		fmt.Print("> ")
 		input, err := reader.ReadString('\n')
 		if err != nil {
-			log.Fatalf("Error reading input: %v", err)
+			log.Printf("Error reading input: %v\n", err)
+			continue
 		}
 
-		input = input[:len(input)-1] // Remove newline character
-		if input == "exit" {
-			fmt.Println("Exiting...")
-			close(stopChan)
-			break
+		input = strings.TrimSpace(input)
+		if input == "" {
+			continue
 		}
 
-		// Start chat with the input prompt
-		err = a.StartChat(input)
-		if err != nil {
-			log.Fatalf("Error starting chat: %v", err)
+		switch strings.ToLower(input) {
+		case "exit":
+			fmt.Println("Goodbye!")
+			return
+		case "help":
+			printHelp()
+		case "status":
+			printStatus(a)
+		default:
+			if err := a.StartDiagnostic(input); err != nil {
+				log.Printf("Diagnostic failed: %v\n", err)
+			}
 		}
-
 	}
 }
 
-func checkAPIStatus(a *agent.Agent) bool {
-	retries := 3
-	for i := 0; i < retries; i++ {
-		_, err := a.GetStatus()
-		if err == nil {
-			return true
-		}
-		log.Printf("Error getting status from API (attempt %d/%d): %v", i+1, retries, err)
-		time.Sleep(10 * time.Second) // Adjust the retry interval as needed
+func printHelp() {
+	fmt.Println("\nAvailable commands:")
+	fmt.Println("  help    - Show this help message")
+	fmt.Println("  status  - Show agent status")
+	fmt.Println("  exit    - Exit the program")
+	fmt.Println("\nFor diagnostics, simply type your query, for example:")
+	fmt.Println("  - Check system health")
+	fmt.Println("  - Investigate high CPU usage")
+	fmt.Println("  - Check disk space")
+	fmt.Println("  - Memory usage analysis")
+	fmt.Println()
+}
+
+func printStatus(a *agent.Agent) {
+	fmt.Printf("\nAgent Status:\n")
+	fmt.Printf("Agent ID: %s\n", map[bool]string{true: "Not registered (offline mode)", false: a.ID}[a.Offline])
+	fmt.Printf("API URL: %s\n", a.APIURL)
+	fmt.Printf("Mode: %s\n", map[bool]string{true: "Offline", false: "Online"}[a.Offline])
+
+	if metadata := a.MetaData; metadata != nil {
+		fmt.Println("\nSystem Information:")
+		fmt.Printf("Hostname: %v\n", metadata["hostname"])
+		fmt.Printf("Platform: %v %v\n", metadata["platform"], metadata["platform_family"])
+		fmt.Printf("Kernel: %v\n", metadata["kernel_version"])
+		fmt.Printf("CPU: %v (%v cores)\n", metadata["cpu_model"], metadata["cpu_cores"])
 	}
-	return false
+	fmt.Println()
 }

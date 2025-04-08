@@ -3,215 +3,243 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"log"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
+	"time"
 
 	"github.com/harshavmb/nannyagent/pkg/api"
-	"golang.org/x/sys/unix"
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/disk"
+	"github.com/shirou/gopsutil/v3/host"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
-// State machine design pattern
-type AgentState int
-
-const (
-	WaitingForPrompt AgentState = iota
-	WaitingForCommands
-	ExecutingCommands
-	WaitingForDiagnosis
-)
-
-// Agent struct
 type Agent struct {
-	ID      string
-	APIURL  string
-	APIKey  string
-	ChatID  string
-	History []map[string]string
-	State   AgentState
+	ID       string
+	APIURL   string
+	APIKey   string
+	MetaData map[string]interface{}
+	Offline  bool
 }
 
 func NewAgent() *Agent {
-	return &Agent{}
+	return &Agent{
+		MetaData: make(map[string]interface{}),
+		Offline:  false,
+	}
 }
 
-func (a *Agent) metadataToString() (string, error) {
-	metadata, err := a.CollectMetadata()
-	if err != nil {
-		return "", err
+func (a *Agent) Initialize(apiURL, apiKey string) error {
+	a.APIURL = apiURL
+	a.APIKey = apiKey
+
+	// Collect system information
+	if err := a.collectSystemInfo(); err != nil {
+		return fmt.Errorf("failed to collect system info: %v", err)
 	}
 
-	// Convert metadata map to JSON string
-	metadataJSON, err := json.Marshal(metadata)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal metadata to JSON: %v", err)
+	// Try to register with API
+	if err := a.RegisterWithAPI(); err != nil {
+		fmt.Printf("Warning: Failed to register with API: %v\n", err)
+		fmt.Println("Running in offline mode. Limited functionality will be available.")
+		a.Offline = true
+		return nil
 	}
 
-	return string(metadataJSON), nil
+	return nil
 }
 
-func (a *Agent) ExecuteCommands(commands []string) (string, error) {
-	var output []string
-	var lastPID string
+func (a *Agent) collectSystemInfo() error {
+	// Get host info
+	hostInfo, err := host.Info()
+	if err != nil {
+		return fmt.Errorf("failed to get host info: %v", err)
+	}
 
-	for _, command := range commands {
+	// Get CPU info
+	cpuInfo, err := cpu.Info()
+	if err != nil {
+		return fmt.Errorf("failed to get CPU info: %v", err)
+	}
 
-		// Replace <PID> with the lastPID if present
-		if strings.Contains(command, "<PID>") {
-			if lastPID == "" {
-				output = append(output, fmt.Sprintf("no PID available for command: %s", command))
-				continue
-			}
-			command = strings.ReplaceAll(command, "<PID>", lastPID)
-		}
+	// Get memory info
+	memInfo, err := mem.VirtualMemory()
+	if err != nil {
+		return fmt.Errorf("failed to get memory info: %v", err)
+	}
 
-		// Start the command
-		out, err := exec.Command("sh", "-c", command).Output()
+	// Get disk info
+	partitions, err := disk.Partitions(true)
+	if err != nil {
+		return fmt.Errorf("failed to get disk partitions: %v", err)
+	}
+
+	diskInfo := make([]map[string]interface{}, 0)
+	for _, partition := range partitions {
+		usage, err := disk.Usage(partition.Mountpoint)
 		if err != nil {
-			log.Println("Error executing command %: ", err)
 			continue
 		}
-
-		outputStr := string(out)
-		output = append(output, outputStr)
-
-		// Extract PID from the output if needed
-		if strings.Contains(command, "ps aux") {
-			re := regexp.MustCompile(`\s+(\d+)\s+`)
-			match := re.FindStringSubmatch(outputStr)
-			if len(match) > 1 {
-				lastPID = match[1]
-			}
-		}
+		diskInfo = append(diskInfo, map[string]interface{}{
+			"device":     partition.Device,
+			"mountpoint": partition.Mountpoint,
+			"fstype":     partition.Fstype,
+			"total":      usage.Total,
+			"used":       usage.Used,
+			"free":       usage.Free,
+		})
 	}
 
-	return strings.Join(output, "\n"), nil
+	a.MetaData = map[string]interface{}{
+		"hostname":        hostInfo.Hostname,
+		"platform":        hostInfo.Platform,
+		"platform_family": hostInfo.PlatformFamily,
+		"kernel_version":  hostInfo.KernelVersion,
+		"os_version":      hostInfo.PlatformVersion,
+		"cpu_model":       cpuInfo[0].ModelName,
+		"cpu_cores":       cpuInfo[0].Cores,
+		"memory_total":    memInfo.Total,
+		"memory_free":     memInfo.Free,
+		"disk_info":       diskInfo,
+		"timestamp":       time.Now().UTC().Format(time.RFC3339),
+	}
+
+	return nil
 }
 
-func (a *Agent) GetStatus() (string, error) {
-	nannyClient, err := api.NewNannyClient(a.APIURL, a.APIKey)
-	if err != nil {
-		return "", err
-	}
-	defer nannyClient.Close()
-
-	status, err := nannyClient.CheckStatus()
-	if err != nil {
-		return "", err
+func (a *Agent) RegisterWithAPI() error {
+	if a.APIURL == "" || a.APIKey == "" {
+		return fmt.Errorf("API URL and Key must be set")
 	}
 
-	return status, nil
+	client, err := api.NewNannyClient(a.APIURL, a.APIKey)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.RegisterAgent(a.MetaData)
+	if err != nil {
+		return err
+	}
+
+	if id, ok := resp["id"].(string); ok {
+		a.ID = id
+		return nil
+	}
+
+	return fmt.Errorf("no agent ID received from registration")
 }
 
-func (a *Agent) CollectHostInfo() (string, error) {
-	hostname, err := os.Hostname()
+func (a *Agent) ExecuteCommand(cmd string) (string, error) {
+	output, err := exec.Command("sh", "-c", cmd).CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("failed to get hostname: %v", err)
+		return string(output), fmt.Errorf("command execution failed: %v", err)
 	}
-
-	ip, err := getLocalIP()
-	if err != nil {
-		return "", fmt.Errorf("failed to get IP address: %v", err)
-	}
-
-	// Get kernel version
-	var uname unix.Utsname
-	if err := unix.Uname(&uname); err != nil {
-		return "", fmt.Errorf("error getting kernel version: %v", err)
-	}
-
-	// Get OS version
-	osVersion := string(uname.Version[:])
-
-	info := fmt.Sprintf("Hostname: %s\nIP Address: %s\nKernel Version: %s\nOS Version: %s\n", strings.TrimSpace(string(hostname)), ip, strings.TrimSpace(string(uname.Release[:])), osVersion)
-	return info, nil
+	return string(output), nil
 }
 
-func getLocalIP() (string, error) {
-	addrs, err := net.InterfaceAddrs()
+func (a *Agent) StartDiagnostic(prompt string) error {
+	if a.Offline {
+		return a.handleOfflineDiagnostic(prompt)
+	}
+
+	client, err := api.NewNannyClient(a.APIURL, a.APIKey)
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	for _, addr := range addrs {
-		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
-			if ipNet.IP.To4() != nil {
-				return ipNet.IP.String(), nil
-			}
-		}
+	// Start diagnostic session
+	payload := map[string]interface{}{
+		"agent_id": a.ID,
+		"prompt":   prompt,
+		"metadata": a.MetaData,
 	}
 
-	return "", fmt.Errorf("no IP address found")
-}
-
-func (a *Agent) GetUserInfo() (map[string]string, error) {
-	nannyClient, err := api.NewNannyClient(a.APIURL, a.APIKey)
+	resp, err := client.StartDiagnostic(payload)
 	if err != nil {
-		return nil, err
-	}
-	defer nannyClient.Close()
-
-	userID, err := nannyClient.GetUserID()
-	if err != nil {
-		return nil, err
+		return err
 	}
 
-	if userID == "" {
-		return nil, fmt.Errorf("no user ID found")
-	}
-
-	result, err := nannyClient.GetUserInfo(userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if result == nil {
-		return nil, fmt.Errorf("no user info found")
-	}
-
-	_, ok := result["name"] // Check if name is present
+	diagnosticID, ok := resp["id"].(string)
 	if !ok {
-		return nil, fmt.Errorf("no name found in user info")
+		return fmt.Errorf("invalid diagnostic ID received")
 	}
 
-	return result, nil
+	// Process commands and continue diagnostic
+	for {
+		commands, ok := resp["commands"].([]interface{})
+		if !ok || len(commands) == 0 {
+			break
+		}
+
+		// Execute commands and collect output
+		var outputs []string
+		for _, cmd := range commands {
+			if cmdStr, ok := cmd.(string); ok {
+				output, err := a.ExecuteCommand(cmdStr)
+				if err != nil {
+					outputs = append(outputs, fmt.Sprintf("Error: %v", err))
+				} else {
+					outputs = append(outputs, output)
+				}
+			}
+		}
+
+		// Continue diagnostic with command outputs
+		payload = map[string]interface{}{
+			"output": strings.Join(outputs, "\n"),
+		}
+
+		resp, err = client.ContinueDiagnostic(diagnosticID, payload)
+		if err != nil {
+			return err
+		}
+
+		// Check if we have a diagnosis
+		if diagnosis, ok := resp["diagnosis"].(string); ok {
+			fmt.Printf("\nDiagnosis:\n%s\n", diagnosis)
+			break
+		}
+	}
+
+	return nil
 }
 
-func (a *Agent) CollectMetadata() (map[string]string, error) {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get hostname: %v", err)
+func (a *Agent) handleOfflineDiagnostic(prompt string) error {
+	fmt.Println("Running in offline mode. Here are some basic diagnostic commands you can try:")
+
+	basicCommands := map[string][]string{
+		"CPU Usage": {"top -bn1 | head -n 5", "mpstat 1 1"},
+		"Memory":    {"free -h", "vmstat 1 1"},
+		"Disk":      {"df -h", "iostat -x 1 1"},
+		"Network":   {"netstat -i", "ss -s"},
+		"System":    {"uname -a", "uptime"},
 	}
 
-	ip, err := getLocalIP()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get IP address: %v", err)
+	fmt.Println("\nAvailable diagnostic categories:")
+	for category := range basicCommands {
+		fmt.Printf("- %s\n", category)
 	}
 
-	// Get kernel version
-	var uname unix.Utsname
-	if err := unix.Uname(&uname); err != nil {
-		return nil, fmt.Errorf("error getting kernel version: %v", err)
+	fmt.Println("\nExecuting basic system checks...")
+	for category, commands := range basicCommands {
+		fmt.Printf("\n=== %s ===\n", category)
+		for _, cmd := range commands {
+			output, err := a.ExecuteCommand(cmd)
+			if err != nil {
+				fmt.Printf("Error running '%s': %v\n", cmd, err)
+				continue
+			}
+			fmt.Printf("\n$ %s\n%s\n", cmd, output)
+		}
 	}
 
-	// Get OS version
-	osVersion := string(uname.Version[:])
-
-	metadata := map[string]string{
-		"hostname":       strings.TrimSpace(hostname),
-		"ip_address":     ip,
-		"kernel_version": strings.TrimSpace(string(uname.Release[:])),
-		"os_version":     osVersion,
-	}
-
-	return metadata, nil
+	return nil
 }
 
-func (a *Agent) SaveMetadata(metadata map[string]string) error {
+func (a *Agent) SaveMetadata() error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to get user home directory: %v", err)
@@ -223,7 +251,7 @@ func (a *Agent) SaveMetadata(metadata map[string]string) error {
 	}
 
 	metadataFile := filepath.Join(nannyDir, "metadata.json")
-	data, err := json.Marshal(metadata)
+	data, err := json.Marshal(a.MetaData)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metadata: %v", err)
 	}
@@ -235,355 +263,20 @@ func (a *Agent) SaveMetadata(metadata map[string]string) error {
 	return nil
 }
 
-func (a *Agent) LoadMetadata() (map[string]string, error) {
+func (a *Agent) LoadMetadata() error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user home directory: %v", err)
+		return fmt.Errorf("failed to get user home directory: %v", err)
 	}
 
 	metadataFile := filepath.Join(homeDir, ".nannyagent", "metadata.json")
 	data, err := os.ReadFile(metadataFile)
 	if err != nil {
-		return nil, err
-	}
-
-	var metadata map[string]string
-	if err := json.Unmarshal(data, &metadata); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal metadata: %v", err)
-	}
-
-	return metadata, nil
-}
-
-func (a *Agent) RegisterAgent() error {
-	metadata, err := a.CollectMetadata()
-	if err != nil {
-		return err
-	}
-
-	nannyClient, err := api.NewNannyClient(a.APIURL, a.APIKey)
-	if err != nil {
-		return err
-	}
-	defer nannyClient.Close()
-
-	resp, err := nannyClient.RegisterAgent(metadata)
-	if err != nil {
-		return err
-	}
-
-	id, ok := resp["id"]
-	if !ok {
-		return fmt.Errorf("no ID returned from server")
-	}
-
-	a.ID = id
-	metadata["id"] = a.ID
-
-	if err := a.SaveMetadata(metadata); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (a *Agent) Initialize(apiURL, apiKey string) error {
-	a.APIURL = apiURL
-	a.APIKey = apiKey
-
-	metadata, err := a.LoadMetadata()
-	if err != nil {
 		if os.IsNotExist(err) {
-			if err := a.RegisterAgent(); err != nil {
-				return err
-			}
-		} else {
-			return err
+			return nil // No existing metadata is not an error
 		}
-	} else {
-		a.ID = metadata["id"]
-	}
-
-	// Load and display chat history
-	if err := a.LoadAndDisplayChatHistory(); err != nil {
 		return err
 	}
 
-	return nil
-}
-
-func (a *Agent) LoadAndDisplayChatHistory() error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get user home directory: %v", err)
-	}
-
-	nannyDir := filepath.Join(homeDir, ".nannyagent")
-	files, err := os.ReadDir(nannyDir)
-	if err != nil {
-		return fmt.Errorf("failed to read .nannyagent directory: %v", err)
-	}
-
-	var chatFiles []string
-	for _, file := range files {
-		if strings.HasPrefix(file.Name(), "chat_") {
-			chatFiles = append(chatFiles, file.Name())
-		}
-	}
-
-	if len(chatFiles) == 0 {
-		fmt.Println("No chat history found.")
-		return nil
-	}
-
-	fmt.Println("Chat History:")
-	for _, chatFile := range chatFiles {
-		_, err := os.ReadFile(filepath.Join(nannyDir, chatFile))
-		if err != nil {
-			return fmt.Errorf("failed to read chat file %s: %v", chatFile, err)
-		}
-
-		// var history []map[string]string
-		// if err := json.Unmarshal(data, &history); err != nil {
-		// 	return fmt.Errorf("failed to unmarshal chat history: %v", err)
-		// }
-
-		// if len(history) > 0 {
-		// 	fmt.Printf("Chat ID: %s, Title: %s\n", chatFile, history[0]["prompt"])
-		// }
-
-		// // Fetch chat history from the API
-		// if err := a.FetchChatHistory(chatFile); err != nil {
-		// 	return err
-		// }
-	}
-
-	return nil
-}
-
-var promptType = "text"
-var commandsToExecute []string
-var commandOutput string
-
-func (a *Agent) StartChat(prompt string) error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get user home directory: %v", err)
-	}
-
-	nannyDir := filepath.Join(homeDir, ".nannyagent")
-	if err := os.MkdirAll(nannyDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .nannyagent directory: %v", err)
-	}
-
-	nannyClient, err := api.NewNannyClient(a.APIURL, a.APIKey)
-	if err != nil {
-		return err
-	}
-	defer nannyClient.Close()
-
-	// If ChatID is empty, create a new chat
-	if a.ChatID == "" {
-		metadataString, err := a.metadataToString()
-		if err != nil {
-			return err
-		}
-
-		initialPrompt := fmt.Sprintf("Agent metadata: %s. User prompt: %s", metadataString, prompt)
-
-		history := []map[string]string{
-			{"prompt": initialPrompt, "response": "", "type": promptType},
-		}
-
-		payload := map[string]interface{}{
-			"agent_id": a.ID,
-			"history":  history,
-		}
-
-		resp, err := nannyClient.StartChat(payload)
-		if err != nil {
-			return err
-		}
-
-		chatID, ok := resp["id"]
-		if !ok {
-			return fmt.Errorf("no chat id returned from server")
-		}
-
-		a.ChatID = chatID
-		a.History = history
-		a.State = WaitingForCommands // Transition to waiting for commands
-
-		chatFile := filepath.Join(nannyDir, fmt.Sprintf("chat_%s.json", chatID))
-		data, err := json.Marshal(payload)
-		if err != nil {
-			return fmt.Errorf("failed to marshal chat: %v", err)
-		}
-
-		if err := os.WriteFile(chatFile, data, 0644); err != nil {
-			return fmt.Errorf("failed to write chat file: %v", err)
-		}
-
-		return a.StartChat(prompt)
-	}
-
-	switch a.State {
-	case WaitingForPrompt:
-		return a.handleWaitingForPrompt(prompt, nannyClient)
-
-	case WaitingForCommands:
-		return a.handleWaitingForCommands(prompt, nannyClient)
-
-	case ExecutingCommands:
-		return a.handleExecutingCommands(commandsToExecute)
-
-	case WaitingForDiagnosis:
-		return a.handleWaitingForDiagnosis(commandOutput, nannyClient)
-
-	default:
-		return fmt.Errorf("invalid agent state")
-	}
-}
-
-func (a *Agent) handleWaitingForPrompt(prompt string, nannyClient *api.NannyClient) error {
-	promptType := "text"
-	payload := map[string]string{
-		"prompt": prompt,
-		"type":   promptType,
-	}
-
-	resp, err := nannyClient.AddPromptResponse(a.ChatID, payload)
-	if err != nil {
-		return err
-	}
-
-	history, ok := resp["history"].([]interface{})
-	if !ok {
-		return fmt.Errorf("invalid history format")
-	}
-
-	lastHistory, ok := history[len(history)-1].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("failed to assert history type")
-	}
-
-	// Convert map[string]interface{} to map[string]string
-	stringMap := make(map[string]string)
-	for k, v := range lastHistory {
-		stringMap[k] = fmt.Sprint(v) // Convert interface{} to string
-	}
-	a.History = append(a.History, stringMap)
-
-	a.State = WaitingForCommands // Transition to waiting for commands
-	return a.StartChat(prompt)
-}
-
-func (a *Agent) handleWaitingForCommands(prompt string, nannyClient *api.NannyClient) error {
-	promptType := "commands"
-	payload := map[string]string{
-		"prompt": prompt,
-		"type":   promptType,
-	}
-
-	resp, err := nannyClient.AddPromptResponse(a.ChatID, payload)
-	if err != nil {
-		return err
-	}
-
-	history, ok := resp["history"].([]interface{})
-	if !ok {
-		return fmt.Errorf("invalid history format")
-	}
-
-	lastHistory, ok := history[len(history)-1].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("failed to assert history type")
-	}
-
-	// Convert map[string]interface{} to map[string]string
-	stringMap := make(map[string]string)
-	for k, v := range lastHistory {
-		stringMap[k] = fmt.Sprint(v) // Convert interface{} to string
-	}
-	a.History = append(a.History, stringMap)
-
-	// Extract commands from the response
-	commandsStr, ok := lastHistory["response"].(string)
-	if ok {
-		commandsToExecute = strings.Split(commandsStr, "\n")
-		a.State = ExecutingCommands // Transition to executing commands
-	} else {
-		return fmt.Errorf("commands not found in response")
-	}
-
-	return a.StartChat(prompt)
-}
-
-func (a *Agent) handleExecutingCommands(commandsToExecute []string) error {
-	var err error
-
-	// Execute commands immediately
-	commandOutput, err = a.ExecuteCommands(commandsToExecute)
-	if err != nil {
-		fmt.Printf("Error executing commands: %v\n", err)
-	}
-
-	a.State = WaitingForDiagnosis // Transition to waiting for diagnosis
-	return a.StartChat(commandOutput)
-}
-
-func (a *Agent) handleWaitingForDiagnosis(commandOutput string, nannyClient *api.NannyClient) error {
-	promptType := "text"
-	payload := map[string]string{
-		"prompt": commandOutput,
-		"type":   promptType,
-	}
-
-	fmt.Printf("Payload is: %s\n", payload["prompt"])
-
-	resp, err := nannyClient.AddPromptResponse(a.ChatID, payload)
-	if err != nil {
-		return err
-	}
-
-	history, ok := resp["history"].([]interface{})
-	if !ok {
-		return fmt.Errorf("invalid history format")
-	}
-
-	lastHistory, ok := history[len(history)-1].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("failed to assert history type")
-	}
-
-	// Convert map[string]interface{} to map[string]string
-	stringMap := make(map[string]string)
-	for k, v := range lastHistory {
-		stringMap[k] = fmt.Sprint(v) // Convert interface{} to string
-	}
-	a.History = append(a.History, stringMap)
-
-	a.State = WaitingForPrompt // Transition back to waiting for prompt
-	//return a.StartChat("status")
-	return nil
-}
-
-func (a *Agent) FetchChatHistory(chatID string) error {
-	nannyClient, err := api.NewNannyClient(a.APIURL, a.APIKey)
-	if err != nil {
-		return err
-	}
-	defer nannyClient.Close()
-
-	result, err := nannyClient.GetChat(chatID)
-	if err != nil {
-		return err
-	}
-
-	history, ok := result["history"].([]interface{})
-	if !ok {
-		return fmt.Errorf("invalid chat history format")
-	}
-
-	fmt.Printf("Chat ID: %s, History: %v\n", chatID, history)
-	return nil
+	return json.Unmarshal(data, &a.MetaData)
 }

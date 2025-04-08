@@ -12,11 +12,6 @@ type NannyClient struct {
 	APIKey  string
 }
 
-func (c *NannyClient) Close() {
-	// Currently, there are no resources to clean up.
-	// This function can be updated in the future if needed.
-}
-
 func NewNannyClient(apiURL, apiKey string) (*NannyClient, error) {
 	return &NannyClient{
 		BaseURL: apiURL,
@@ -41,81 +36,59 @@ func (c *NannyClient) DoRequest(endpoint string, method string, payload interfac
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-NANNYAPI-Key", c.APIKey)
+	req.Header.Set("X-API-Key", c.APIKey)
 
 	client := &http.Client{}
-	return client.Do(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("API request failed: %v", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("API request failed with status: %s", resp.Status)
+	}
+
+	return resp, nil
 }
 
-func (c *NannyClient) CheckStatus() (string, error) {
+func (c *NannyClient) GetStatus() (map[string]interface{}, error) {
 	resp, err := c.DoRequest("/status", "GET", nil)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get status from server: %s", resp.Status)
-	}
-
-	var result map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode API status response: %s", err)
-	}
-
-	return result["status"], nil
-}
-
-func (c *NannyClient) GetUserID() (string, error) {
-	resp, err := c.DoRequest("/api/user-auth-token", "GET", nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to get user ID from server: %s", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get user ID from server: %s", resp.Status)
-	}
-
-	var result string
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode user ID response: %s", err)
-	}
-
-	return result, nil
-}
-
-func (c *NannyClient) GetUserInfo(userID string) (map[string]string, error) {
-	resp, err := c.DoRequest(fmt.Sprintf("/api/user/%s", userID), "GET", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user info from server: %s", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get user info from server: %s", resp.Status)
-	}
-
-	var result map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode user info response: %s", err)
-	}
-
-	return result, nil
-}
-
-func (c *NannyClient) RegisterAgent(metadata map[string]string) (map[string]string, error) {
-	resp, err := c.DoRequest("/api/agent-info", "POST", metadata)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("failed to register agent: %s", resp.Status)
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode API status response: %s", err)
 	}
 
-	var result map[string]string
+	return result, nil
+}
+
+func (c *NannyClient) GetUser(userID string) (map[string]interface{}, error) {
+	resp, err := c.DoRequest(fmt.Sprintf("/api/user/%s", userID), "GET", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode user response: %s", err)
+	}
+
+	return result, nil
+}
+
+func (c *NannyClient) RegisterAgent(metadata map[string]interface{}) (map[string]interface{}, error) {
+	resp, err := c.DoRequest("/api/agent", "POST", metadata)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode agent registration response: %s", err)
 	}
@@ -123,107 +96,32 @@ func (c *NannyClient) RegisterAgent(metadata map[string]string) (map[string]stri
 	return result, nil
 }
 
-func (c *NannyClient) StartChat(chat map[string]interface{}) (map[string]string, error) {
-	resp, err := c.DoRequest("/api/chat", "POST", chat)
+func (c *NannyClient) StartDiagnostic(payload map[string]interface{}) (map[string]interface{}, error) {
+	resp, err := c.DoRequest("/api/diagnostic", "POST", payload)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("failed to initiate chat: %s", resp.Status)
-	}
-
-	var result map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode chat initiation response: %s", err)
-	}
-
-	return result, nil
-}
-
-func (c *NannyClient) AddPromptResponse(chatID string, promptResponse map[string]string) (map[string]interface{}, error) {
-	resp, err := c.DoRequest(fmt.Sprintf("/api/chat/%s", chatID), "PUT", promptResponse)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to add prompt response: %s", resp.Status)
-	}
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode chat initiation response: %s", err)
+		return nil, fmt.Errorf("failed to decode diagnostic start response: %s", err)
 	}
 
 	return result, nil
 }
 
-func (c *NannyClient) GetChat(id string) (map[string]interface{}, error) {
-	resp, err := c.DoRequest(fmt.Sprintf("/api/chat/%s", id), "GET", nil)
+func (c *NannyClient) ContinueDiagnostic(id string, payload map[string]interface{}) (map[string]interface{}, error) {
+	resp, err := c.DoRequest(fmt.Sprintf("/api/diagnostic/%s/continue", id), "POST", payload)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		fmt.Printf("No chat record found for chat ID: %s\n", id)
-		return nil, nil
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch chat history: %s", resp.Status)
-	}
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode chat history: %s", err)
+		return nil, fmt.Errorf("failed to decode diagnostic continue response: %s", err)
 	}
 
 	return result, nil
-}
-
-func (c *NannyClient) GetGenerativeAIResponse(input string) ([]string, error) {
-	payload := map[string]string{"input": input}
-	resp, err := c.DoRequest("/generative-ai-response", "POST", payload)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get response from server: %s", resp.Status)
-	}
-
-	var response []string
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, err
-	}
-
-	return response, nil
-}
-
-func (c *NannyClient) FinalGenerativeAIResponse(input, output string) (string, error) {
-	payload := map[string]string{
-		"input":  input,
-		"output": output,
-	}
-	resp, err := c.DoRequest("/final-generative-ai-response", "POST", payload)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get response from server: %s", resp.Status)
-	}
-
-	var response string
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", err
-	}
-
-	return response, nil
 }

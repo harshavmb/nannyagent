@@ -1,64 +1,125 @@
-# nannyagent
+# NannyAgent
 
-nannyagent is a Linux-based agent that interacts with the Gemini API (gemini-1.5-flash) over REST. The agent allows users to query system information such as health status, filesystem usage, disk usage, memory usage, and process details by sending requests to the Gemini API.
+NannyAgent is a Linux diagnostic tool that interfaces with the NannyAI API to provide intelligent system diagnostics and troubleshooting. The agent collects system metrics and interacts with the API to diagnose system issues.
 
-## Project Structure
+## Features
 
-```
-nannyagent
-├── cmd
-│   └── main.go         # Entry point of the application
-├── pkg
-│   ├── api
-│   │   └── gemini.go   # Functions for interacting with the Gemini API
-│   ├── agent
-│   │   └── agent.go     # Agent struct and command execution methods
-├── go.mod               # Module definition and dependencies
-└── README.md            # Project documentation
-```
+- System metrics collection (CPU, memory, disk, network)
+- Interactive diagnostic sessions
+- Offline mode support for basic diagnostics
+- Automatic agent registration and metadata management
+- Real-time command execution and analysis
+- Persistent agent state management
 
-## Setup Instructions
+## Installation
 
 1. Clone the repository:
-   ```
-   git clone https://github.com/harshavmb/nannyagent.git
-   cd nannyagent
-   ```
+```bash
+git clone https://github.com/harshavmb/nannyagent.git
+cd nannyagent
+```
 
-2. Initialize the Go module:
-   ```
-   go mod tidy
-   ```
+2. Build the agent:
+```bash
+go build -o nannyagent ./cmd/main.go
+```
 
-3. Build the application:
-   ```
-   go build -o nannyagent ./cmd/main.go
-   ```
+## Configuration
+
+The agent can be configured using command-line flags or environment variables:
+
+### Environment Variables
+
+- `NANNY_API_KEY`: Your NannyAI API key (required for online mode)
+
+### Command Line Flags
+
+- `--api-url`: NannyAI API URL (default: https://api.nannyai.dev)
+- `--api-key`: NannyAI API key
+- `--prompt`: Initial diagnostic prompt
+- `--offline`: Run in offline mode
 
 ## Usage
 
-To run the agent, execute the following command:
+### Online Mode
+
+1. Set your API key:
+```bash
+export NANNY_API_KEY="your-api-key"
 ```
+
+2. Run the agent:
+```bash
 ./nannyagent
 ```
 
-Once running, you can input queries such as:
-- "Check my system health"
-- "Filesystem usage"
-- "Disk usage"
-- "Memory"
-- "Processes details"
+### Offline Mode
 
-The agent will send the input to the Gemini API, fetch the necessary commands, execute them, and return the output to the user.
+Run the agent in offline mode for basic diagnostics without API connectivity:
+```bash
+./nannyagent --offline
+```
 
-## Functionality
+### Interactive Commands
 
-- **System Health Check**: Queries the health status of the system.
-- **Filesystem Usage**: Retrieves information about filesystem usage.
-- **Disk Usage**: Provides details on disk usage statistics.
-- **Memory Usage**: Displays current memory usage.
-- **Process Details**: Lists active processes and their details.
+Once running, the following commands are available:
 
-## Contributing
+- `help`: Show available commands and examples
+- `status`: Show agent and system status
+- `exit`: Exit the program
 
-Contributions are welcome! Please submit a pull request or open an issue for any enhancements or bug fixes.
+For diagnostics, simply type your query, for example:
+- "Check system health"
+- "Investigate high CPU usage"
+- "Check disk space"
+- "Memory usage analysis"
+
+## System Requirements
+
+- Linux-based operating system
+- Go 1.22 or later
+
+## Development
+
+### Running Tests
+
+```bash
+go test ./...
+```
+
+### Project Structure
+
+```
+nannyagent/
+├── cmd/
+│   └── main.go           # Main application entry
+├── pkg/
+│   ├── agent/
+│   │   ├── agent.go      # Core agent functionality
+│   │   └── agent_test.go # Agent tests
+│   └── api/
+│       └── nanny.go      # API client implementation
+├── go.mod               # Go module definition
+└── README.md           # This file
+```
+
+## Offline Diagnostics
+
+When running in offline mode or when API connectivity is lost, the agent provides basic diagnostic capabilities including:
+
+- CPU usage monitoring
+- Memory usage analysis
+- Disk space checking
+- Network statistics
+- Basic system information
+
+## Security
+
+The agent:
+- Only executes commands received from the authenticated API endpoint
+- Stores sensitive data (API key, metadata) in the user's home directory
+- Validates all API responses and command outputs
+
+## License
+
+GNU General Public License v3.0
