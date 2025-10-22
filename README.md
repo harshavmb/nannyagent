@@ -6,6 +6,7 @@ A Go-based AI agent that diagnoses Linux system issues using the NannyAPI gatewa
 
 - Interactive command-line interface for submitting system issues
 - **Automatic system information gathering** - Includes OS, kernel, CPU, memory, network info
+- **eBPF-powered deep system monitoring** - Advanced tracing for network, processes, files, and security events
 - Integrates with NannyAPI using OpenAI-compatible Go SDK
 - Executes diagnostic commands safely and collects output
 - Provides step-by-step resolution plans
@@ -32,7 +33,7 @@ A Go-based AI agent that diagnoses Linux system issues using the NannyAPI gatewa
 
 The agent can be configured using environment variables:
 
-- `NANNYAPI_ENDPOINT`: The NannyAPI endpoint (default: `http://nannyapi.local:3000/openai/v1`)
+- `NANNYAPI_ENDPOINT`: The NannyAPI endpoint (default: `http://tensorzero.netcup.internal:3000/openai/v1`)
 - `NANNYAPI_MODEL`: The model identifier (default: `nannyapi::function_name::diagnose_and_heal`)
 
 ## Installation on Linux VM
@@ -93,13 +94,14 @@ The agent can be configured using environment variables:
 
 ## How It Works
 
-1. **System Information Gathering**: Agent automatically collects system details (OS, kernel, CPU, memory, network, etc.)
-2. **Initial Issue**: User describes a Linux system problem
-3. **Enhanced Prompt**: AI receives both the issue description and comprehensive system information
-4. **Diagnostic Phase**: AI responds with diagnostic commands to run
-5. **Command Execution**: Agent safely executes read-only commands
-6. **Iterative Analysis**: AI analyzes command outputs and may request more commands
-7. **Resolution Phase**: AI provides root cause analysis and step-by-step resolution plan
+1. **User Input**: Submit a description of the system issue you're experiencing
+2. **System Info Gathering**: Agent automatically collects comprehensive system information and eBPF capabilities
+3. **AI Analysis**: Sends the issue description + system info to NannyAPI for analysis
+4. **Diagnostic Phase**: AI returns structured commands and eBPF monitoring requests for investigation
+5. **Command Execution**: Agent safely executes diagnostic commands and runs eBPF traces in parallel
+6. **eBPF Monitoring**: Real-time system tracing (network, processes, files, syscalls) provides deep insights
+7. **Iterative Analysis**: Command results and eBPF trace data are sent back to AI for further analysis
+8. **Resolution**: AI provides root cause analysis and step-by-step resolution plan based on comprehensive data
 
 ## Testing & Integration Tests
 
@@ -129,10 +131,29 @@ The agent includes comprehensive integration tests that simulate realistic Linux
 
 ## Safety
 
-- Only read-only commands are executed automatically
-- Commands that modify the system (rm, mv, dd, redirection) are blocked by validation
-- The resolution plan is provided for manual execution by the operator
-- All commands have execution timeouts to prevent hanging
+## eBPF Monitoring Capabilities
+
+The agent includes advanced eBPF (Extended Berkeley Packet Filter) monitoring for deep system investigation:
+
+- **System Call Tracing**: Monitor process behavior through syscall analysis
+- **Network Activity**: Track network connections, data flow, and protocol usage  
+- **Process Monitoring**: Real-time process creation, execution, and lifecycle tracking
+- **File System Events**: Monitor file access, creation, deletion, and permission changes
+- **Performance Analysis**: CPU, memory, and I/O performance profiling
+- **Security Events**: Detect privilege escalation and suspicious activities
+
+The AI automatically requests appropriate eBPF monitoring based on the issue type, providing unprecedented visibility into system behavior during problem diagnosis.
+
+For detailed eBPF documentation, see [EBPF_README.md](EBPF_README.md).
+
+## Safety
+
+- All commands are validated before execution to prevent dangerous operations
+- Read-only diagnostic commands are prioritized
+- No commands that modify system state (rm, mv, etc.) are executed
+- Commands have timeouts to prevent hanging
+- Secure execution environment with proper error handling
+- eBPF monitoring is read-only and time-limited for safety
 
 ## API Integration
 

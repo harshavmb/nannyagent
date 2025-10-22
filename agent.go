@@ -46,10 +46,11 @@ type CommandResult struct {
 
 // LinuxDiagnosticAgent represents the main agent
 type LinuxDiagnosticAgent struct {
-	client    *openai.Client
-	model     string
-	executor  *CommandExecutor
-	episodeID string // TensorZero episode ID for conversation continuity
+	client      *openai.Client
+	model       string
+	executor    *CommandExecutor
+	episodeID   string               // TensorZero episode ID for conversation continuity
+	ebpfManager EBPFManagerInterface // eBPF monitoring capabilities
 }
 
 // NewLinuxDiagnosticAgent creates a new diagnostic agent
@@ -57,12 +58,12 @@ func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
 	endpoint := os.Getenv("NANNYAPI_ENDPOINT")
 	if endpoint == "" {
 		// Default endpoint - OpenAI SDK will append /chat/completions automatically
-		endpoint = "http://nannyapi.local:3000/openai/v1"
+		endpoint = "http://tensorzero.netcup.internal:3000/openai/v1"
 	}
 
 	model := os.Getenv("NANNYAPI_MODEL")
 	if model == "" {
-		model = "nannyapi::function_name::diagnose_and_heal"
+		model = "tensorzero::function_name::diagnose_and_heal"
 		fmt.Printf("Warning: Using default model '%s'. Set NANNYAPI_MODEL environment variable for your specific function.\n", model)
 	}
 
@@ -72,11 +73,16 @@ func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
 	config.BaseURL = endpoint
 	client := openai.NewClientWithConfig(config)
 
-	return &LinuxDiagnosticAgent{
+	agent := &LinuxDiagnosticAgent{
 		client:   client,
 		model:    model,
 		executor: NewCommandExecutor(10 * time.Second), // 10 second timeout for commands
 	}
+
+	// Initialize eBPF capabilities
+	agent.ebpfManager = NewCiliumEBPFManager()
+
+	return agent
 }
 
 // DiagnoseIssue starts the diagnostic process for a given issue
@@ -220,7 +226,7 @@ func (a *LinuxDiagnosticAgent) sendRequest(messages []openai.ChatCompletionMessa
 	// Create HTTP request
 	endpoint := os.Getenv("NANNYAPI_ENDPOINT")
 	if endpoint == "" {
-		endpoint = "http://nannyapi.local:3000/openai/v1"
+		endpoint = "http://tensorzero.netcup.internal:3000/openai/v1"
 	}
 
 	// Ensure the endpoint ends with /chat/completions
