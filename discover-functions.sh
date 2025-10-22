@@ -7,7 +7,7 @@ echo "🔍 NannyAPI Function Discovery"
 echo "=============================="
 echo ""
 
-ENDPOINT="${NANNYAPI_ENDPOINT:-http://nannyapi.local:3000/openai/v1}"
+ENDPOINT="${NANNYAPI_ENDPOINT:-http://tensorzero.netcup.internal:3000/openai/v1}"
 
 echo "Testing endpoint: $ENDPOINT/chat/completions"
 echo ""

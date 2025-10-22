@@ -152,3 +152,50 @@ ISSUE DESCRIPTION:`,
 		info.PrivateIPs,
 		runtime.Version())
 }
+
+// FormatSystemInfoWithEBPFForPrompt formats system information including eBPF capabilities
+func FormatSystemInfoWithEBPFForPrompt(info *SystemInfo, ebpfManager EBPFManagerInterface) string {
+	baseInfo := FormatSystemInfoForPrompt(info)
+
+	if ebpfManager == nil {
+		return baseInfo + "\neBPF CAPABILITIES: Not available\n"
+	}
+
+	capabilities := ebpfManager.GetCapabilities()
+	summary := ebpfManager.GetSummary()
+
+	ebpfInfo := fmt.Sprintf(`
+eBPF MONITORING CAPABILITIES:
+- System Call Tracing: %v
+- Network Activity Tracing: %v
+- Process Monitoring: %v
+- File System Monitoring: %v
+- Performance Monitoring: %v
+- Security Event Monitoring: %v
+
+eBPF INTEGRATION GUIDE:
+To request eBPF monitoring during diagnosis, include these fields in your JSON response:
+{
+  "response_type": "diagnostic",
+  "reasoning": "explanation of why eBPF monitoring is needed",
+  "commands": [regular diagnostic commands],
+  "ebpf_capabilities": ["syscall_trace", "network_trace", "process_trace"],
+  "ebpf_duration_seconds": 15,
+  "ebpf_filters": {"pid": "process_id", "comm": "process_name", "path": "/specific/path"}
+}
+
+Available eBPF capabilities: %v
+eBPF Status: %v
+
+`,
+		capabilities["tracepoint"],
+		capabilities["kprobe"],
+		capabilities["kernel_support"],
+		capabilities["tracepoint"],
+		capabilities["kernel_support"],
+		capabilities["bpftrace_available"],
+		capabilities,
+		summary)
+
+	return baseInfo + ebpfInfo
+}
