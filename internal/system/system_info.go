@@ -1,4 +1,4 @@
-package main
+package system
 
 import (
 	"fmt"
@@ -6,6 +6,9 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"nannyagentv2/internal/executor"
+	"nannyagentv2/internal/types"
 )
 
 // SystemInfo represents basic system information
@@ -25,42 +28,42 @@ type SystemInfo struct {
 // GatherSystemInfo collects basic system information
 func GatherSystemInfo() *SystemInfo {
 	info := &SystemInfo{}
-	executor := NewCommandExecutor(5 * time.Second)
+	executor := executor.NewCommandExecutor(5 * time.Second)
 
 	// Basic system info
-	if result := executor.Execute(Command{ID: "hostname", Command: "hostname"}); result.ExitCode == 0 {
+	if result := executor.Execute(types.Command{ID: "hostname", Command: "hostname"}); result.ExitCode == 0 {
 		info.Hostname = strings.TrimSpace(result.Output)
 	}
 
-	if result := executor.Execute(Command{ID: "os", Command: "lsb_release -d 2>/dev/null | cut -f2 || cat /etc/os-release | grep PRETTY_NAME | cut -d'=' -f2 | tr -d '\"'"}); result.ExitCode == 0 {
+	if result := executor.Execute(types.Command{ID: "os", Command: "lsb_release -d 2>/dev/null | cut -f2 || cat /etc/os-release | grep PRETTY_NAME | cut -d'=' -f2 | tr -d '\"'"}); result.ExitCode == 0 {
 		info.OS = strings.TrimSpace(result.Output)
 	}
 
-	if result := executor.Execute(Command{ID: "kernel", Command: "uname -r"}); result.ExitCode == 0 {
+	if result := executor.Execute(types.Command{ID: "kernel", Command: "uname -r"}); result.ExitCode == 0 {
 		info.Kernel = strings.TrimSpace(result.Output)
 	}
 
-	if result := executor.Execute(Command{ID: "arch", Command: "uname -m"}); result.ExitCode == 0 {
+	if result := executor.Execute(types.Command{ID: "arch", Command: "uname -m"}); result.ExitCode == 0 {
 		info.Architecture = strings.TrimSpace(result.Output)
 	}
 
-	if result := executor.Execute(Command{ID: "cores", Command: "nproc"}); result.ExitCode == 0 {
+	if result := executor.Execute(types.Command{ID: "cores", Command: "nproc"}); result.ExitCode == 0 {
 		info.CPUCores = strings.TrimSpace(result.Output)
 	}
 
-	if result := executor.Execute(Command{ID: "memory", Command: "free -h | grep Mem | awk '{print $2}'"}); result.ExitCode == 0 {
+	if result := executor.Execute(types.Command{ID: "memory", Command: "free -h | grep Mem | awk '{print $2}'"}); result.ExitCode == 0 {
 		info.Memory = strings.TrimSpace(result.Output)
 	}
 
-	if result := executor.Execute(Command{ID: "uptime", Command: "uptime -p"}); result.ExitCode == 0 {
+	if result := executor.Execute(types.Command{ID: "uptime", Command: "uptime -p"}); result.ExitCode == 0 {
 		info.Uptime = strings.TrimSpace(result.Output)
 	}
 
-	if result := executor.Execute(Command{ID: "load", Command: "uptime | awk -F'load average:' '{print $2}' | xargs"}); result.ExitCode == 0 {
+	if result := executor.Execute(types.Command{ID: "load", Command: "uptime | awk -F'load average:' '{print $2}' | xargs"}); result.ExitCode == 0 {
 		info.LoadAverage = strings.TrimSpace(result.Output)
 	}
 
-	if result := executor.Execute(Command{ID: "disk", Command: "df -h / | tail -1 | awk '{print \"Root: \" $3 \"/\" $2 \" (\" $5 \" used)\"}'"}); result.ExitCode == 0 {
+	if result := executor.Execute(types.Command{ID: "disk", Command: "df -h / | tail -1 | awk '{print \"Root: \" $3 \"/\" $2 \" (\" $5 \" used)\"}'"}); result.ExitCode == 0 {
 		info.DiskUsage = strings.TrimSpace(result.Output)
 	}
 
@@ -151,51 +154,4 @@ ISSUE DESCRIPTION:`,
 		info.DiskUsage,
 		info.PrivateIPs,
 		runtime.Version())
-}
-
-// FormatSystemInfoWithEBPFForPrompt formats system information including eBPF capabilities
-func FormatSystemInfoWithEBPFForPrompt(info *SystemInfo, ebpfManager EBPFManagerInterface) string {
-	baseInfo := FormatSystemInfoForPrompt(info)
-
-	if ebpfManager == nil {
-		return baseInfo + "\neBPF CAPABILITIES: Not available\n"
-	}
-
-	capabilities := ebpfManager.GetCapabilities()
-	summary := ebpfManager.GetSummary()
-
-	ebpfInfo := fmt.Sprintf(`
-eBPF MONITORING CAPABILITIES:
-- System Call Tracing: %v
-- Network Activity Tracing: %v
-- Process Monitoring: %v
-- File System Monitoring: %v
-- Performance Monitoring: %v
-- Security Event Monitoring: %v
-
-eBPF INTEGRATION GUIDE:
-To request eBPF monitoring during diagnosis, include these fields in your JSON response:
-{
-  "response_type": "diagnostic",
-  "reasoning": "explanation of why eBPF monitoring is needed",
-  "commands": [regular diagnostic commands],
-  "ebpf_capabilities": ["syscall_trace", "network_trace", "process_trace"],
-  "ebpf_duration_seconds": 15,
-  "ebpf_filters": {"pid": "process_id", "comm": "process_name", "path": "/specific/path"}
-}
-
-Available eBPF capabilities: %v
-eBPF Status: %v
-
-`,
-		capabilities["tracepoint"],
-		capabilities["kprobe"],
-		capabilities["kernel_support"],
-		capabilities["tracepoint"],
-		capabilities["kernel_support"],
-		capabilities["bpftrace_available"],
-		capabilities,
-		summary)
-
-	return baseInfo + ebpfInfo
 }

@@ -1,96 +1,144 @@
-# Linux Diagnostic Agent
+# NannyAgent - Linux Diagnostic Agent
 
-A Go-based AI agent that diagnoses Linux system issues using the NannyAPI gateway with OpenAI-compatible SDK.
+A Go-based AI agent that diagnoses Linux system issues using eBPF-powered deep monitoring and TensorZero AI integration.
 
 ## Features
 
-- Interactive command-line interface for submitting system issues
-- **Automatic system information gathering** - Includes OS, kernel, CPU, memory, network info
-- **eBPF-powered deep system monitoring** - Advanced tracing for network, processes, files, and security events
-- Integrates with NannyAPI using OpenAI-compatible Go SDK
-- Executes diagnostic commands safely and collects output
-- Provides step-by-step resolution plans
-- **Comprehensive integration tests** with realistic Linux problem scenarios
+- 🤖 **AI-Powered Diagnostics** - Intelligent issue analysis and resolution planning
+- 🔍 **eBPF Deep Monitoring** - Real-time kernel-level tracing for network, processes, files, and security events
+- 🛡️ **Safe Command Execution** - Validates and executes diagnostic commands with timeouts
+- 📊 **Automatic System Information Gathering** - Comprehensive OS, kernel, CPU, memory, and network metrics
+- 🔄 **WebSocket Integration** - Real-time communication with backend investigation system
+- 🔐 **OAuth Device Flow Authentication** - Secure agent registration and authentication
+- ✅ **Comprehensive Integration Tests** - Realistic Linux problem scenarios
 
-## Setup
+## Requirements
 
-1. Clone this repository
-2. Copy `.env.example` to `.env` and configure your NannyAPI endpoint:
+- **Operating System**: Linux only (no containers/LXC support)
+- **Architecture**: amd64 (x86_64) or arm64 (aarch64)
+- **Kernel Version**: Linux kernel 5.x or higher
+- **Privileges**: Root/sudo access required for eBPF functionality
+- **Dependencies**: bpftrace and bpfcc-tools (automatically installed by installer)
+- **Network**: Connectivity to Supabase backend
+
+## Quick Installation
+
+### One-Line Install (Recommended)
+
+```bash
+# Download and run the installer
+curl -fsSL https://your-domain.com/install.sh | sudo bash
+```
+
+Or download first, then install:
+
+```bash
+# Download the installer
+wget https://your-domain.com/install.sh
+
+# Make it executable
+chmod +x install.sh
+
+# Run the installer
+sudo ./install.sh
+```
+
+### Manual Installation
+
+1. Clone this repository:
    ```bash
-   cp .env.example .env
+   git clone https://github.com/harshavmb/nannyagent.git
+   cd nannyagent
    ```
-3. Install dependencies:
+
+2. Run the installer script:
    ```bash
-   go mod tidy
+   sudo ./install.sh
    ```
-4. Build and run:
-   ```bash
-   make build
-   ./nanny-agent
-   ```
+
+The installer will:
+- ✅ Verify system requirements (OS, architecture, kernel version)
+- ✅ Check for existing installations
+- ✅ Install eBPF tools (bpftrace, bpfcc-tools)
+- ✅ Build the nannyagent binary
+- ✅ Test connectivity to Supabase
+- ✅ Install to `/usr/local/bin/nannyagent`
+- ✅ Create configuration in `/etc/nannyagent/config.env`
+- ✅ Create secure data directory `/var/lib/nannyagent`
 
 ## Configuration
 
-The agent can be configured using environment variables:
+After installation, configure your Supabase URL:
 
-- `NANNYAPI_ENDPOINT`: The NannyAPI endpoint (default: `http://tensorzero.netcup.internal:3000/openai/v1`)
-- `NANNYAPI_MODEL`: The model identifier (default: `nannyapi::function_name::diagnose_and_heal`)
+```bash
+# Edit the configuration file
+sudo nano /etc/nannyagent/config.env
+```
 
-## Installation on Linux VM
+Required configuration:
 
-### Direct Installation
+```bash
+# Supabase Configuration
+SUPABASE_PROJECT_URL=https://your-project.supabase.co
 
-1. **Install Go** (if not already installed):
-   ```bash
-   # For Ubuntu/Debian
-   sudo apt update
-   sudo apt install golang-go
+# Portal URL for device authorization (default: https://nannyai.dev)
+# NANNYAI_PORTAL_URL=https://nannyai.dev
 
-   # For RHEL/CentOS/Fedora
-   sudo dnf install golang
-   # or
-   sudo yum install golang
-   ```
+# Optional Configuration
+# TOKEN_PATH=/var/lib/nannyagent/token.json  # Default path
+DEBUG=false
+```
 
-2. **Clone and build the agent**:
-   ```bash
-   git clone <your-repo-url>
-   cd nannyagentv2
-   go mod tidy
-   make build
-   ```
+**Configuration Notes:**
+- `SUPABASE_PROJECT_URL`: Required - Your Supabase project URL
+- `NANNYAI_PORTAL_URL`: Optional - Portal URL for device auth (defaults to https://nannyai.dev)
+- `TOKEN_PATH`: Optional - Token storage path (defaults to /var/lib/nannyagent/token.json)
+- `DEBUG`: Optional - Enable debug logging (true/false)
 
-3. **Install as system service** (optional):
-   ```bash
-   sudo cp nanny-agent /usr/local/bin/
-   sudo chmod +x /usr/local/bin/nanny-agent
-   ```
+## Command-Line Options
 
-4. **Set environment variables**:
-   ```bash
-   export NANNYAPI_ENDPOINT="http://your-nannyapi-endpoint:3000/openai/v1"
-   export NANNYAPI_MODEL="your-model-identifier"
-   ```
+```bash
+# Show version (no sudo required)
+nannyagent --version
+nannyagent -v
+
+# Show help (no sudo required)
+nannyagent --help
+nannyagent -h
+
+# Run the agent (requires sudo)
+sudo nannyagent
+```
 
 ## Usage
 
-1. Start the agent:
+1. **First-time Setup** - Authenticate the agent:
    ```bash
-   ./nanny-agent
+   sudo nannyagent
    ```
+   
+   The agent will display a verification URL and code. Visit the URL and enter the code to authorize the agent.
 
-2. Enter a system issue description when prompted:
+2. **Interactive Diagnostics** - After authentication, enter system issues:
    ```
    > On /var filesystem I cannot create any file but df -h shows 30% free space available.
    ```
 
-3. The agent will:
-   - Send the issue to the AI via NannyAPI using OpenAI SDK
-   - Execute diagnostic commands as suggested by the AI
-   - Provide command outputs back to the AI
-   - Display the final diagnosis and resolution plan
+3. **The agent will**:
+   - Gather comprehensive system information automatically
+   - Send the issue to AI for analysis via TensorZero
+   - Execute diagnostic commands safely
+   - Run eBPF traces for deep kernel-level monitoring
+   - Provide AI-generated root cause analysis and resolution plan
 
-4. Type `quit` or `exit` to stop the agent
+4. **Exit the agent**:
+   ```
+   > quit
+   ```
+   or
+   ```
+   > exit
+   ```
 
 ## How It Works
 
@@ -119,14 +167,87 @@ The agent includes comprehensive integration tests that simulate realistic Linux
 
 ### Run Integration Tests:
 ```bash
-# Interactive test scenarios
-./test-examples.sh
+# Run unit tests
+make test
 
-# Automated integration tests
-./integration-tests.sh
+# Run integration tests
+./tests/test_ebpf_integration.sh
+```
 
-# Function discovery (find valid NannyAPI functions)
-./discover-functions.sh
+## Installation Exit Codes
+
+The installer uses specific exit codes for different failure scenarios:
+
+| Exit Code | Description |
+|-----------|-------------|
+| 0 | Success |
+| 1 | Not running as root |
+| 2 | Unsupported operating system (non-Linux) |
+| 3 | Unsupported architecture (not amd64/arm64) |
+| 4 | Container/LXC environment detected |
+| 5 | Kernel version < 5.x |
+| 6 | Existing installation detected |
+| 7 | eBPF tools installation failed |
+| 8 | Go not installed |
+| 9 | Binary build failed |
+| 10 | Directory creation failed |
+| 11 | Binary installation failed |
+
+## Troubleshooting
+
+### Installation Issues
+
+**Error: "Kernel version X.X is not supported"**
+- NannyAgent requires Linux kernel 5.x or higher
+- Upgrade your kernel or use a different system
+
+**Error: "Another instance may already be installed"**
+- Check if `/var/lib/nannyagent` exists
+- Remove it if you're sure: `sudo rm -rf /var/lib/nannyagent`
+- Then retry installation
+
+**Warning: "Cannot connect to Supabase"**
+- Check your network connectivity
+- Verify firewall settings allow HTTPS connections
+- Ensure SUPABASE_PROJECT_URL is correctly configured in `/etc/nannyagent/config.env`
+
+### Runtime Issues
+
+**Error: "This program must be run as root"**
+- eBPF requires root privileges
+- Always run with: `sudo nannyagent`
+
+**Error: "Cannot determine kernel version"**
+- Ensure `uname` command is available
+- Check system integrity
+
+## Development
+
+### Building from Source
+
+```bash
+# Clone repository
+git clone https://github.com/harshavmb/nannyagent.git
+cd nannyagent
+
+# Install Go dependencies
+go mod tidy
+
+# Build binary
+make build
+
+# Run locally (requires sudo)
+sudo ./nannyagent
+```
+
+### Running Tests
+
+```bash
+# Run unit tests
+make test
+
+# Test eBPF capabilities
+./tests/test_ebpf_integration.sh
 ```
 
 ## Safety
