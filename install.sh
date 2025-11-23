@@ -160,7 +160,7 @@ install_dependencies() {
         
         # Install bpfcc-tools and bpftrace
         log_info "Installing bpfcc-tools and bpftrace..."
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bpfcc-tools bpftrace linux-headers-$(uname -r) 2>&1 | grep -v "^Reading" | grep -v "^Building" || {
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bpfcc-tools bpftrace linux-headers-$(uname -r) 2>&1 || {
             log_error "Failed to install eBPF tools"
             exit 7
         }
@@ -170,7 +170,7 @@ install_dependencies() {
         log_info "Detected Fedora/RHEL 8+ system"
         
         log_info "Installing bcc-tools and bpftrace..."
-        dnf install -y -q bcc-tools bpftrace kernel-devel 2>&1 | grep -v "^Last metadata" || {
+        dnf install -y -q bcc-tools bpftrace kernel-devel 2>&1 || {
             log_error "Failed to install eBPF tools"
             exit 7
         }
@@ -180,7 +180,7 @@ install_dependencies() {
         log_info "Detected CentOS/RHEL 7 system"
         
         log_info "Installing bcc-tools and bpftrace..."
-        yum install -y -q bcc-tools bpftrace kernel-devel 2>&1 | grep -v "^Loaded plugins" || {
+        yum install -y -q bcc-tools bpftrace kernel-devel 2>&1 || {
             log_error "Failed to install eBPF tools"
             exit 7
         }
