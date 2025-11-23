@@ -225,7 +225,7 @@ func main() {
 	// Initialize a separate agent for WebSocket investigations using the application model
 	// IMPORTANT: Must use WithAuth to include authorization headers for TensorZero API calls
 	applicationAgent := NewLinuxDiagnosticAgentWithAuth(authManager)
-	applicationAgent.model = "tensorzero::function_name::diagnose_and_heal_application"
+	applicationAgent.SetModel("tensorzero::function_name::diagnose_and_heal_application")
 
 	// Start WebSocket client for backend communications and investigations
 	wsClient := websocket.NewWebSocketClient(applicationAgent, authManager)

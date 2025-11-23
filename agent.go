@@ -99,6 +99,11 @@ func NewLinuxDiagnosticAgentWithAuth(authManager interface{}) *LinuxDiagnosticAg
 	return agent
 }
 
+// SetModel sets the model for the diagnostic agent
+func (a *LinuxDiagnosticAgent) SetModel(model string) {
+	a.model = model
+}
+
 // DiagnoseIssue starts the diagnostic process for a given issue
 func (a *LinuxDiagnosticAgent) DiagnoseIssue(issue string) error {
 	logging.Info("Diagnosing issue: %s", issue)
