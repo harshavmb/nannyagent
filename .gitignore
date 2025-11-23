@@ -23,6 +23,10 @@ go.work
 go.work.sum
 
 # env file
-.env
+.env*
 nannyagent*
 nanny-agent*
+.vscode
+
+# Build directory
+build/
