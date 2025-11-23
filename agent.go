@@ -2,99 +2,118 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
+
+	"nannyagentv2/internal/ebpf"
+	"nannyagentv2/internal/executor"
+	"nannyagentv2/internal/logging"
+	"nannyagentv2/internal/system"
+	"nannyagentv2/internal/types"
 
 	"github.com/sashabaranov/go-openai"
 )
 
-// DiagnosticResponse represents the diagnostic phase response from AI
-type DiagnosticResponse struct {
-	ResponseType string    `json:"response_type"`
-	Reasoning    string    `json:"reasoning"`
-	Commands     []Command `json:"commands"`
+// AgentConfig holds configuration for concurrent execution (local to agent)
+type AgentConfig struct {
+	MaxConcurrentTasks int  `json:"max_concurrent_tasks"`
+	CollectiveResults  bool `json:"collective_results"`
 }
 
-// ResolutionResponse represents the resolution phase response from AI
-type ResolutionResponse struct {
-	ResponseType   string `json:"response_type"`
-	RootCause      string `json:"root_cause"`
-	ResolutionPlan string `json:"resolution_plan"`
-	Confidence     string `json:"confidence"`
+// DefaultAgentConfig returns default configuration
+func DefaultAgentConfig() *AgentConfig {
+	return &AgentConfig{
+		MaxConcurrentTasks: 10,   // Default to 10 concurrent forks
+		CollectiveResults:  true, // Send results collectively when all finish
+	}
 }
 
-// Command represents a command to be executed
-type Command struct {
-	ID          string `json:"id"`
-	Command     string `json:"command"`
-	Description string `json:"description"`
-}
+//
+// LinuxDiagnosticAgent represents the main diagnostic agent
 
-// CommandResult represents the result of executing a command
-type CommandResult struct {
-	ID       string `json:"id"`
-	Command  string `json:"command"`
-	Output   string `json:"output"`
-	ExitCode int    `json:"exit_code"`
-	Error    string `json:"error,omitempty"`
-}
-
-// LinuxDiagnosticAgent represents the main agent
+// LinuxDiagnosticAgent represents the main diagnostic agent
 type LinuxDiagnosticAgent struct {
 	client      *openai.Client
 	model       string
-	executor    *CommandExecutor
-	episodeID   string               // TensorZero episode ID for conversation continuity
-	ebpfManager EBPFManagerInterface // eBPF monitoring capabilities
+	executor    *executor.CommandExecutor
+	episodeID   string                // TensorZero episode ID for conversation continuity
+	ebpfManager *ebpf.BCCTraceManager // eBPF tracing manager
+	config      *AgentConfig          // Configuration for concurrent execution
+	authManager interface{}           // Authentication manager for TensorZero requests
+	logger      *logging.Logger
 }
 
 // NewLinuxDiagnosticAgent creates a new diagnostic agent
 func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
-	endpoint := os.Getenv("NANNYAPI_ENDPOINT")
-	if endpoint == "" {
-		// Default endpoint - OpenAI SDK will append /chat/completions automatically
-		endpoint = "http://tensorzero.netcup.internal:3000/openai/v1"
+	// Get Supabase project URL for TensorZero proxy
+	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
+	if supabaseURL == "" {
+		logging.Warning("SUPABASE_PROJECT_URL not set, TensorZero integration will not work")
 	}
 
-	model := os.Getenv("NANNYAPI_MODEL")
-	if model == "" {
-		model = "tensorzero::function_name::diagnose_and_heal"
-		fmt.Printf("Warning: Using default model '%s'. Set NANNYAPI_MODEL environment variable for your specific function.\n", model)
-	}
-
-	// Create OpenAI client with custom base URL
-	// Note: The OpenAI SDK automatically appends "/chat/completions" to the base URL
-	config := openai.DefaultConfig("")
-	config.BaseURL = endpoint
-	client := openai.NewClientWithConfig(config)
+	// Default model for diagnostic and healing
+	model := "tensorzero::function_name::diagnose_and_heal"
 
 	agent := &LinuxDiagnosticAgent{
-		client:   client,
+		client:   nil, // Not used - we use direct HTTP to Supabase proxy
 		model:    model,
-		executor: NewCommandExecutor(10 * time.Second), // 10 second timeout for commands
+		executor: executor.NewCommandExecutor(10 * time.Second), // 10 second timeout for commands
+		config:   DefaultAgentConfig(),                          // Default concurrent execution config
 	}
 
-	// Initialize eBPF capabilities
-	agent.ebpfManager = NewCiliumEBPFManager()
+	// Initialize eBPF manager
+	agent.ebpfManager = ebpf.NewBCCTraceManager()
+	agent.logger = logging.NewLogger()
 
 	return agent
 }
 
+// NewLinuxDiagnosticAgentWithAuth creates a new diagnostic agent with authentication
+func NewLinuxDiagnosticAgentWithAuth(authManager interface{}) *LinuxDiagnosticAgent {
+	// Get Supabase project URL for TensorZero proxy
+	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
+	if supabaseURL == "" {
+		logging.Warning("SUPABASE_PROJECT_URL not set, TensorZero integration will not work")
+	}
+
+	// Default model for diagnostic and healing
+	model := "tensorzero::function_name::diagnose_and_heal"
+
+	agent := &LinuxDiagnosticAgent{
+		client:      nil, // Not used - we use direct HTTP to Supabase proxy
+		model:       model,
+		executor:    executor.NewCommandExecutor(10 * time.Second), // 10 second timeout for commands
+		config:      DefaultAgentConfig(),                          // Default concurrent execution config
+		authManager: authManager,                                   // Store auth manager for TensorZero requests
+	}
+
+	// Initialize eBPF manager
+	agent.ebpfManager = ebpf.NewBCCTraceManager()
+	agent.logger = logging.NewLogger()
+
+	return agent
+}
+
+// SetModel sets the model for the diagnostic agent
+func (a *LinuxDiagnosticAgent) SetModel(model string) {
+	a.model = model
+}
+
 // DiagnoseIssue starts the diagnostic process for a given issue
 func (a *LinuxDiagnosticAgent) DiagnoseIssue(issue string) error {
-	fmt.Printf("Diagnosing issue: %s\n", issue)
-	fmt.Println("Gathering system information...")
+	logging.Info("Diagnosing issue: %s", issue)
+	logging.Info("Gathering system information...")
 
 	// Gather system information
-	systemInfo := GatherSystemInfo()
+	systemInfo := system.GatherSystemInfo()
 
 	// Format the initial prompt with system information
-	initialPrompt := FormatSystemInfoForPrompt(systemInfo) + "\n" + issue
+	initialPrompt := system.FormatSystemInfoForPrompt(systemInfo) + "\n" + issue
 
 	// Start conversation with initial issue including system info
 	messages := []openai.ChatCompletionMessage{
@@ -106,7 +125,7 @@ func (a *LinuxDiagnosticAgent) DiagnoseIssue(issue string) error {
 
 	for {
 		// Send request to TensorZero API via OpenAI SDK
-		response, err := a.sendRequest(messages)
+		response, err := a.SendRequestWithEpisode(messages, a.episodeID)
 		if err != nil {
 			return fmt.Errorf("failed to send request: %w", err)
 		}
@@ -116,37 +135,92 @@ func (a *LinuxDiagnosticAgent) DiagnoseIssue(issue string) error {
 		}
 
 		content := response.Choices[0].Message.Content
-		fmt.Printf("\nAI Response:\n%s\n", content)
+		logging.Debug("AI Response: %s", content)
+
+		// Strip markdown code blocks if present
+		content = strings.TrimSpace(content)
+		if strings.HasPrefix(content, "```json") {
+			content = strings.TrimPrefix(content, "```json")
+			content = strings.TrimSuffix(content, "```")
+			content = strings.TrimSpace(content)
+		} else if strings.HasPrefix(content, "```") {
+			content = strings.TrimPrefix(content, "```")
+			content = strings.TrimSuffix(content, "```")
+			content = strings.TrimSpace(content)
+		}
 
 		// Parse the response to determine next action
-		var diagnosticResp DiagnosticResponse
-		var resolutionResp ResolutionResponse
+		var diagnosticResp types.EBPFEnhancedDiagnosticResponse
+		var resolutionResp types.ResolutionResponse
 
-		// Try to parse as diagnostic response first
+		// Try to parse as diagnostic response first (with eBPF support)
+		logging.Debug("Attempting to parse response as diagnostic...")
 		if err := json.Unmarshal([]byte(content), &diagnosticResp); err == nil && diagnosticResp.ResponseType == "diagnostic" {
+			logging.Debug("Successfully parsed as diagnostic response with %d commands", len(diagnosticResp.Commands))
 			// Handle diagnostic phase
-			fmt.Printf("\nReasoning: %s\n", diagnosticResp.Reasoning)
-
-			if len(diagnosticResp.Commands) == 0 {
-				fmt.Println("No commands to execute in diagnostic phase")
-				break
-			}
+			logging.Debug("Reasoning: %s", diagnosticResp.Reasoning)
 
 			// Execute commands and collect results
-			commandResults := make([]CommandResult, 0, len(diagnosticResp.Commands))
-			for _, cmd := range diagnosticResp.Commands {
-				fmt.Printf("\nExecuting command '%s': %s\n", cmd.ID, cmd.Command)
-				result := a.executor.Execute(cmd)
-				commandResults = append(commandResults, result)
+			commandResults := make([]types.CommandResult, 0, len(diagnosticResp.Commands))
+			if len(diagnosticResp.Commands) > 0 {
+				logging.Info("Executing %d diagnostic commands", len(diagnosticResp.Commands))
+				for i, cmdStr := range diagnosticResp.Commands {
+					// Convert string command to Command struct (auto-generate ID and description)
+					cmd := types.Command{
+						ID:          fmt.Sprintf("cmd_%d", i+1),
+						Command:     cmdStr,
+						Description: fmt.Sprintf("Diagnostic command: %s", cmdStr),
+					}
+					result := a.executor.Execute(cmd)
+					commandResults = append(commandResults, result)
 
-				fmt.Printf("Output:\n%s\n", result.Output)
-				if result.Error != "" {
-					fmt.Printf("Error: %s\n", result.Error)
+					if result.ExitCode != 0 {
+						logging.Warning("Command '%s' failed with exit code %d", cmd.ID, result.ExitCode)
+					}
 				}
 			}
 
-			// Prepare command results as user message
-			resultsJSON, err := json.MarshalIndent(commandResults, "", "  ")
+			// Execute eBPF programs if present - support both old and new formats
+			var ebpfResults []map[string]interface{}
+			if len(diagnosticResp.EBPFPrograms) > 0 {
+				logging.Info("AI requested %d eBPF traces for enhanced diagnostics", len(diagnosticResp.EBPFPrograms))
+
+				// Convert EBPFPrograms to TraceSpecs and execute concurrently using the eBPF service
+				traceSpecs := a.ConvertEBPFProgramsToTraceSpecs(diagnosticResp.EBPFPrograms)
+				ebpfResults = a.ExecuteEBPFTraces(traceSpecs)
+			}
+
+			// Prepare combined results as user message
+			allResults := map[string]interface{}{
+				"command_results":   commandResults,
+				"executed_commands": len(commandResults),
+			}
+
+			// Include eBPF results if any were executed
+			if len(ebpfResults) > 0 {
+				allResults["ebpf_results"] = ebpfResults
+				allResults["executed_ebpf_programs"] = len(ebpfResults)
+
+				// Extract evidence summary for TensorZero
+				evidenceSummary := make([]string, 0)
+				for _, result := range ebpfResults {
+					target := result["target"]
+					eventCount := result["event_count"]
+					summary := result["summary"]
+					success := result["success"]
+
+					status := "failed"
+					if success == true {
+						status = "success"
+					}
+
+					summaryStr := fmt.Sprintf("%s: %v events (%s) - %s", target, eventCount, status, summary)
+					evidenceSummary = append(evidenceSummary, summaryStr)
+				}
+				allResults["ebpf_evidence_summary"] = evidenceSummary
+			}
+
+			resultsJSON, err := json.MarshalIndent(allResults, "", "  ")
 			if err != nil {
 				return fmt.Errorf("failed to marshal command results: %w", err)
 			}
@@ -162,115 +236,406 @@ func (a *LinuxDiagnosticAgent) DiagnoseIssue(issue string) error {
 			})
 
 			continue
+		} else {
+			logging.Debug("Failed to parse as diagnostic. Error: %v, ResponseType: '%s'", err, diagnosticResp.ResponseType)
 		}
 
 		// Try to parse as resolution response
 		if err := json.Unmarshal([]byte(content), &resolutionResp); err == nil && resolutionResp.ResponseType == "resolution" {
 			// Handle resolution phase
-			fmt.Printf("\n=== DIAGNOSIS COMPLETE ===\n")
-			fmt.Printf("Root Cause: %s\n", resolutionResp.RootCause)
-			fmt.Printf("Resolution Plan: %s\n", resolutionResp.ResolutionPlan)
-			fmt.Printf("Confidence: %s\n", resolutionResp.Confidence)
+			logging.Info("=== DIAGNOSIS COMPLETE ===")
+			logging.Info("Root Cause: %s", resolutionResp.RootCause)
+			logging.Info("Resolution Plan: %s", resolutionResp.ResolutionPlan)
+			logging.Info("Confidence: %s", resolutionResp.Confidence)
+
+			// Reset episode ID for next conversation
+			a.episodeID = ""
+			logging.Debug("Episode completed, reset episode_id for next conversation")
+
 			break
 		}
 
 		// If we can't parse the response, treat it as an error or unexpected format
-		fmt.Printf("Unexpected response format or error from AI:\n%s\n", content)
+		logging.Error("Unexpected response format or error from AI: %s", content)
 		break
 	}
 
 	return nil
 }
 
-// TensorZeroRequest represents a request structure compatible with TensorZero's episode_id
-type TensorZeroRequest struct {
-	Model     string                         `json:"model"`
-	Messages  []openai.ChatCompletionMessage `json:"messages"`
-	EpisodeID string                         `json:"tensorzero::episode_id,omitempty"`
+// sendRequest sends a request to TensorZero via Supabase proxy (without episode ID)
+func (a *LinuxDiagnosticAgent) SendRequest(messages []openai.ChatCompletionMessage) (*openai.ChatCompletionResponse, error) {
+	return a.SendRequestWithEpisode(messages, "")
 }
 
-// TensorZeroResponse represents TensorZero's response with episode_id
-type TensorZeroResponse struct {
-	openai.ChatCompletionResponse
-	EpisodeID string `json:"episode_id"`
+// ExecuteCommand executes a command using the agent's executor
+func (a *LinuxDiagnosticAgent) ExecuteCommand(cmd types.Command) types.CommandResult {
+	return a.executor.Execute(cmd)
 }
 
-// sendRequest sends a request to the TensorZero API with tensorzero::episode_id support
-func (a *LinuxDiagnosticAgent) sendRequest(messages []openai.ChatCompletionMessage) (*openai.ChatCompletionResponse, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Create TensorZero-compatible request
-	tzRequest := TensorZeroRequest{
-		Model:    a.model,
-		Messages: messages,
+// sendRequestWithEpisode sends a request to TensorZero via Supabase proxy with episode ID for conversation continuity
+func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatCompletionMessage, episodeID string) (*openai.ChatCompletionResponse, error) {
+	// Convert messages to the expected format
+	messageMaps := make([]map[string]interface{}, len(messages))
+	for i, msg := range messages {
+		messageMaps[i] = map[string]interface{}{
+			"role":    msg.Role,
+			"content": msg.Content,
+		}
 	}
 
-	// Include tensorzero::episode_id for conversation continuity (if we have one)
-	if a.episodeID != "" {
-		tzRequest.EpisodeID = a.episodeID
+	// Create TensorZero request
+	tzRequest := map[string]interface{}{
+		"model":    a.model,
+		"messages": messageMaps,
 	}
 
-	fmt.Printf("Debug: Sending request to model: %s", a.model)
-	if a.episodeID != "" {
-		fmt.Printf(" (episode: %s)", a.episodeID)
+	// Add episode ID if provided
+	if episodeID != "" {
+		tzRequest["tensorzero::episode_id"] = episodeID
 	}
-	fmt.Println()
 
-	// Marshal the request
+	// Marshal request
 	requestBody, err := json.Marshal(tzRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Create HTTP request
-	endpoint := os.Getenv("NANNYAPI_ENDPOINT")
-	if endpoint == "" {
-		endpoint = "http://tensorzero.netcup.internal:3000/openai/v1"
+	// Get Supabase URL
+	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
+	if supabaseURL == "" {
+		return nil, fmt.Errorf("SUPABASE_PROJECT_URL not set")
 	}
 
-	// Ensure the endpoint ends with /chat/completions
-	if endpoint[len(endpoint)-1] != '/' {
-		endpoint += "/"
-	}
-	endpoint += "chat/completions"
-
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(requestBody))
+	// Create HTTP request to TensorZero proxy (includes OpenAI-compatible path)
+	endpoint := fmt.Sprintf("%s/functions/v1/tensorzero-proxy/openai/v1/chat/completions", supabaseURL)
+	logging.Debug("Calling TensorZero proxy at: %s", endpoint)
+	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(requestBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	// Set headers
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 
-	// Make the request
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+	// Add authentication if auth manager is available (same pattern as investigation_server.go)
+	if a.authManager != nil {
+		// The authManager should be *auth.AuthManager, so let's use the exact same pattern
+		if authMgr, ok := a.authManager.(interface {
+			LoadToken() (*types.AuthToken, error)
+		}); ok {
+			if authToken, err := authMgr.LoadToken(); err == nil && authToken != nil {
+				req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", authToken.AccessToken))
+			}
+		}
+	}
+
+	// Send request with retry logic (up to 5 attempts with longer timeout)
+	client := &http.Client{Timeout: 60 * time.Second}
+	var resp *http.Response
+	var lastErr error
+
+	for attempt := 1; attempt <= 5; attempt++ {
+		resp, err = client.Do(req)
+		if err == nil {
+			break
+		}
+
+		lastErr = err
+		logging.Warning("Request attempt %d/5 failed: %v", attempt, err)
+
+		if attempt < 5 {
+			// Exponential backoff: 2s, 4s, 8s, 16s
+			backoff := time.Duration(1<<uint(attempt)) * time.Second
+			logging.Info("Retrying in %v...", backoff)
+			time.Sleep(backoff)
+		}
+	}
+
+	if lastErr != nil {
+		return nil, fmt.Errorf("failed to send request after 5 attempts: %w", lastErr)
 	}
 	defer resp.Body.Close()
 
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+	// Check status code
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+
+		// Handle 401 Unauthorized - try to refresh token
+		if resp.StatusCode == 401 && a.authManager != nil {
+			if authMgr, ok := a.authManager.(interface {
+				LoadToken() (*types.AuthToken, error)
+				RefreshAccessToken(string) (*types.TokenResponse, error)
+				SaveToken(*types.AuthToken) error
+			}); ok {
+				// Load current token to get refresh token
+				if currentToken, err := authMgr.LoadToken(); err == nil && currentToken != nil && currentToken.RefreshToken != "" {
+					// Refresh the access token
+					if tokenResp, err := authMgr.RefreshAccessToken(currentToken.RefreshToken); err == nil {
+						// Save the new token
+						newToken := &types.AuthToken{
+							AccessToken:  tokenResp.AccessToken,
+							RefreshToken: tokenResp.RefreshToken,
+							TokenType:    tokenResp.TokenType,
+							ExpiresAt:    time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
+							AgentID:      currentToken.AgentID, // Keep existing agent ID
+						}
+						if err := authMgr.SaveToken(newToken); err == nil {
+							// Update the Authorization header with new token
+							req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", newToken.AccessToken))
+
+							// Retry the request with new token
+							resp, err = client.Do(req)
+							if err != nil {
+								return nil, fmt.Errorf("failed to send request after token refresh: %w", err)
+							}
+							defer resp.Body.Close()
+
+							// If still not 200, fall through to error below
+							if resp.StatusCode == 200 {
+								// Success! Continue with normal response processing
+								goto parseResponse
+							}
+
+							body, _ = io.ReadAll(resp.Body)
+						}
+					}
+				}
+			}
+		}
+
+		return nil, fmt.Errorf("TensorZero proxy error: %d, body: %s", resp.StatusCode, string(body))
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+parseResponse:
+
+	// Parse response
+	var tzResponse map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&tzResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	// Parse TensorZero response
-	var tzResponse TensorZeroResponse
-	if err := json.Unmarshal(body, &tzResponse); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	// Convert to OpenAI format for compatibility
+	choices, ok := tzResponse["choices"].([]interface{})
+	if !ok || len(choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
 	}
 
-	// Extract episode_id from first response
-	if a.episodeID == "" && tzResponse.EpisodeID != "" {
-		a.episodeID = tzResponse.EpisodeID
-		fmt.Printf("Debug: Extracted episode ID: %s\n", a.episodeID)
+	// Extract the first choice
+	firstChoice, ok := choices[0].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid choice format")
 	}
 
-	return &tzResponse.ChatCompletionResponse, nil
+	message, ok := firstChoice["message"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid message format")
+	}
+
+	content, ok := message["content"].(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid content format")
+	}
+
+	// Create OpenAI-compatible response
+	response := &openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleAssistant,
+					Content: content,
+				},
+			},
+		},
+	}
+
+	// Update episode ID if provided in response
+	if respEpisodeID, ok := tzResponse["episode_id"].(string); ok && respEpisodeID != "" {
+		a.episodeID = respEpisodeID
+	}
+
+	return response, nil
+}
+
+// ConvertEBPFProgramsToTraceSpecs converts old EBPFProgram format to new TraceSpec format
+func (a *LinuxDiagnosticAgent) ConvertEBPFProgramsToTraceSpecs(ebpfPrograms []types.EBPFRequest) []ebpf.TraceSpec {
+	var traceSpecs []ebpf.TraceSpec
+
+	for _, prog := range ebpfPrograms {
+		spec := a.convertToTraceSpec(prog)
+		traceSpecs = append(traceSpecs, spec)
+	}
+
+	return traceSpecs
+}
+
+// convertToTraceSpec converts an EBPFRequest to a TraceSpec for BCC-style tracing
+func (a *LinuxDiagnosticAgent) convertToTraceSpec(prog types.EBPFRequest) ebpf.TraceSpec {
+	// Set default duration if not specified
+	duration := prog.Duration
+	if duration <= 0 {
+		duration = 10 // default 10 seconds
+	}
+
+	// Detect if target contains a full bpftrace script (has curly braces)
+	// This handles both type="bpftrace" and cases where AI uses old type but includes script
+	if prog.Type == "bpftrace" || strings.Contains(prog.Target, "{") {
+		// For bpftrace type, the target contains the full script
+		// We'll use a special marker to indicate this is a raw script
+		return ebpf.TraceSpec{
+			ProbeType: "bpftrace", // Special type for raw bpftrace scripts
+			Target:    prog.Target,
+			Format:    prog.Description,
+			Arguments: []string{},
+			Duration:  duration,
+			UID:       -1,
+		}
+	}
+
+	// Determine probe type based on target and type (legacy format)
+	probeType := "p" // default to kprobe
+	target := prog.Target
+
+	if strings.HasPrefix(target, "tracepoint:") {
+		probeType = "t"
+		target = strings.TrimPrefix(target, "tracepoint:")
+	} else if strings.HasPrefix(target, "kprobe:") {
+		probeType = "p"
+		target = strings.TrimPrefix(target, "kprobe:")
+	} else if prog.Type == "tracepoint" {
+		probeType = "t"
+	} else if prog.Type == "kprobe" {
+		probeType = "p"
+	} else if prog.Type == "kretprobe" {
+		probeType = "r"
+	} else if prog.Type == "syscall" {
+		// Convert syscall names to kprobe targets
+		if !strings.HasPrefix(target, "__x64_sys_") && !strings.Contains(target, ":") {
+			if strings.HasPrefix(target, "sys_") {
+				target = "__x64_" + target
+			} else {
+				target = "__x64_sys_" + target
+			}
+		}
+		probeType = "p"
+	}
+
+	return ebpf.TraceSpec{
+		ProbeType: probeType,
+		Target:    target,
+		Format:    prog.Description, // Use description as format
+		Arguments: []string{},       // Start with no arguments for compatibility
+		Duration:  duration,
+		UID:       -1, // No UID filter (don't default to 0 which means root only)
+	}
+}
+
+// executeEBPFTraces executes multiple eBPF traces using the eBPF service
+func (a *LinuxDiagnosticAgent) ExecuteEBPFTraces(traceSpecs []ebpf.TraceSpec) []map[string]interface{} {
+	if len(traceSpecs) == 0 {
+		return []map[string]interface{}{}
+	}
+
+	a.logger.Info("Executing %d eBPF traces in parallel", len(traceSpecs))
+
+	// Track trace IDs and their specs
+	type traceInfo struct {
+		index   int
+		spec    ebpf.TraceSpec
+		traceID string
+		err     error
+	}
+	traces := make([]traceInfo, 0, len(traceSpecs))
+
+	// Start all traces in parallel
+	maxDuration := 0
+	for i, spec := range traceSpecs {
+		a.logger.Debug("Starting trace %d: %s", i, spec.Target)
+
+		traceID, err := a.ebpfManager.StartTrace(spec)
+		traces = append(traces, traceInfo{
+			index:   i,
+			spec:    spec,
+			traceID: traceID,
+			err:     err,
+		})
+
+		if err != nil {
+			a.logger.Error("Failed to start trace %d: %v", i, err)
+		} else {
+			// Track the maximum duration
+			if spec.Duration > maxDuration {
+				maxDuration = spec.Duration
+			}
+		}
+	}
+
+	// Wait for the longest trace duration + buffer for output capture
+	if maxDuration > 0 {
+		a.logger.Info("Waiting %d seconds for all traces to complete", maxDuration)
+		time.Sleep(time.Duration(maxDuration)*time.Second + 500*time.Millisecond)
+	}
+
+	// Collect results from all traces
+	results := make([]map[string]interface{}, 0, len(traces))
+	for _, trace := range traces {
+		if trace.err != nil {
+			result := map[string]interface{}{
+				"index":   trace.index,
+				"target":  trace.spec.Target,
+				"success": false,
+				"error":   trace.err.Error(),
+			}
+			results = append(results, result)
+			continue
+		}
+
+		// Get the trace result
+		traceResult, err := a.ebpfManager.GetTraceResult(trace.traceID)
+		if err != nil {
+			a.logger.Error("Failed to get results for trace %d: %v", trace.index, err)
+			result := map[string]interface{}{
+				"index":   trace.index,
+				"target":  trace.spec.Target,
+				"success": false,
+				"error":   err.Error(),
+			}
+			results = append(results, result)
+			continue
+		}
+
+		// Build successful result
+		result := map[string]interface{}{
+			"index":             trace.index,
+			"target":            trace.spec.Target,
+			"success":           true,
+			"event_count":       traceResult.EventCount,
+			"events_per_second": traceResult.Statistics.EventsPerSecond,
+			"duration":          traceResult.EndTime.Sub(traceResult.StartTime).Seconds(),
+			"summary":           traceResult.Summary,
+		}
+
+		// Include raw output for bpftrace scripts (aggregation results)
+		if traceResult.EventCount > 0 {
+			// Concatenate all event messages (which contain the raw bpftrace output)
+			var rawOutput strings.Builder
+			for _, event := range traceResult.Events {
+				if event.Message != "" {
+					rawOutput.WriteString(event.Message)
+					rawOutput.WriteString("\n")
+				}
+			}
+			if rawOutput.Len() > 0 {
+				result["output"] = strings.TrimSpace(rawOutput.String())
+			}
+		}
+
+		results = append(results, result)
+
+		a.logger.Debug("Completed trace %d: %d events", trace.index, traceResult.EventCount)
+	}
+
+	a.logger.Info("Completed %d eBPF traces", len(results))
+	return results
 }

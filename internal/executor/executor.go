@@ -1,4 +1,4 @@
-package main
+package executor
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"nannyagentv2/internal/types"
 )
 
 // CommandExecutor handles safe execution of diagnostic commands
@@ -21,8 +23,8 @@ func NewCommandExecutor(timeout time.Duration) *CommandExecutor {
 }
 
 // Execute executes a command safely with timeout and validation
-func (ce *CommandExecutor) Execute(cmd Command) CommandResult {
-	result := CommandResult{
+func (ce *CommandExecutor) Execute(cmd types.Command) types.CommandResult {
+	result := types.CommandResult{
 		ID:      cmd.ID,
 		Command: cmd.Command,
 	}
