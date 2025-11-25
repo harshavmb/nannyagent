@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,46 +19,41 @@ import (
 	"nannyagentv2/internal/websocket"
 )
 
-const Version = "0.0.1"
+const (
+	// DataDir is the hardcoded path for agent data (not configurable)
+	DataDir = "/var/lib/nannyagent"
+)
 
-// showVersion displays the version information
+var Version = "dev" // Will be set by build ldflags (e.g., -ldflags "-X main.Version=1.0.0")
+
+// showVersion displays the version information (stdout only, no syslog)
 func showVersion() {
 	fmt.Printf("nannyagent version %s\n", Version)
 	fmt.Println("Linux diagnostic agent with eBPF capabilities")
 	os.Exit(0)
 }
 
-// showHelp displays the help information
+// showHelp displays the help information (stdout only, no syslog)
 func showHelp() {
-	fmt.Println("NannyAgent - Linux Diagnostic Agent with eBPF Monitoring")
+	fmt.Println("NannyAgent - AI-Powered Linux Diagnostic Agent")
 	fmt.Printf("Version: %s\n\n", Version)
 	fmt.Println("USAGE:")
-	fmt.Printf("  sudo %s [OPTIONS]\n\n", os.Args[0])
-	fmt.Println("OPTIONS:")
-	fmt.Println("  --version, -v    Show version information")
-	fmt.Println("  --help, -h       Show this help message")
-	fmt.Println()
-	fmt.Println("DESCRIPTION:")
-	fmt.Println("  NannyAgent is an AI-powered Linux diagnostic tool that uses eBPF")
-	fmt.Println("  for deep system monitoring and analysis. It requires root privileges")
-	fmt.Println("  to run for eBPF functionality.")
-	fmt.Println()
-	fmt.Println("REQUIREMENTS:")
-	fmt.Println("  - Linux kernel 5.x or higher")
-	fmt.Println("  - Root privileges (sudo)")
-	fmt.Println("  - bpftrace and bpfcc-tools installed")
-	fmt.Println("  - Network connectivity to nannyapi")
-	fmt.Println()
-	fmt.Println("CONFIGURATION:")
-	fmt.Println("  Configuration file: /etc/nannyagent/config.env")
-	fmt.Println("  Data directory: /var/lib/nannyagent")
+	fmt.Printf("  %s [COMMAND]\n\n", os.Args[0])
+	fmt.Println("COMMANDS:")
+	fmt.Println("  --register           Register agent with NannyAI")
+	fmt.Println("  --status             Show agent status")
+	fmt.Println("  --diagnose <issue>   Run one-off diagnosis")
+	fmt.Println("  --daemon             Run as daemon (systemd)")
+	fmt.Println("  --version            Show version")
+	fmt.Println("  --help               Show this help")
 	fmt.Println()
 	fmt.Println("EXAMPLES:")
-	fmt.Printf("  # Run the agent\n")
-	fmt.Printf("  sudo %s\n\n", os.Args[0])
-	fmt.Printf("  # Show version (no sudo required)\n")
-	fmt.Printf("  %s --version\n\n", os.Args[0])
-	fmt.Println("For more information, visit: https://github.com/harshavmb/nannyagent")
+	fmt.Println("  sudo nannyagent --register")
+	fmt.Println("  nannyagent --status")
+	fmt.Println("  sudo nannyagent --diagnose \"postgresql is slow\"")
+	fmt.Println("  sudo nannyagent    # Interactive mode")
+	fmt.Println()
+	fmt.Printf("Documentation: https://nannyai.dev/documentation\n")
 	os.Exit(0)
 }
 
@@ -120,9 +116,173 @@ func checkEBPFSupport() {
 	}
 }
 
+// validateDiagnosisPrompt validates that a diagnosis prompt is meaningful
+func validateDiagnosisPrompt(prompt string) error {
+	prompt = strings.TrimSpace(prompt)
+
+	// Check minimum length (at least 10 characters)
+	if len(prompt) < 10 {
+		return fmt.Errorf("prompt is too short (minimum 10 characters required)")
+	}
+
+	// Check it has at least 3 words for meaningful context
+	words := strings.Fields(prompt)
+	if len(words) < 3 {
+		return fmt.Errorf("prompt is incomplete (minimum 3 words required for meaningful diagnosis)")
+	}
+
+	return nil
+}
+
+// testAPIConnectivity tests if we can reach the API endpoint by sending a heartbeat
+func testAPIConnectivity(cfg *config.Config, accessToken string, agentID string) error {
+	// Test by sending actual heartbeat to agent-auth-api
+	metricsCollector := metrics.NewCollector(Version)
+	systemMetrics, err := metricsCollector.GatherSystemMetrics()
+	if err != nil {
+		return fmt.Errorf("failed to gather metrics: %w", err)
+	}
+
+	err = metricsCollector.SendMetrics(cfg.AgentAuthURL, accessToken, agentID, systemMetrics)
+	if err != nil {
+		return fmt.Errorf("heartbeat failed: %w", err)
+	}
+
+	return nil
+}
+
+// checkExistingAgentInstance verifies if an agent is already registered on this machine
+func checkExistingAgentInstance() error {
+	tokenPath := filepath.Join(DataDir, "token.json")
+
+	// Check if token file exists
+	if _, err := os.Stat(tokenPath); err == nil {
+		return fmt.Errorf("agent already registered on this machine (token found at %s)", tokenPath)
+	}
+
+	return nil
+}
+
+// runRegisterCommand handles agent registration
+func runRegisterCommand() {
+	logging.Info("Starting NannyAgent registration")
+
+	// Check if agent is already registered on this machine
+	if err := checkExistingAgentInstance(); err != nil {
+		logging.Error("Cannot register: %v", err)
+		logging.Error("Only one agent instance is allowed per machine")
+		logging.Error("To re-register, remove the existing token:")
+		logging.Error("  sudo rm -rf %s", DataDir)
+		os.Exit(1)
+	}
+
+	// Load configuration (use defaults if not available)
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		logging.Warning("Could not load configuration, using defaults: %v", err)
+		cfg = &config.DefaultConfig
+		cfg.SupabaseProjectURL = "https://api.nannyai.dev"
+		cfg.DeviceAuthURL = fmt.Sprintf("%s/functions/v1/device-auth", cfg.SupabaseProjectURL)
+		cfg.AgentAuthURL = fmt.Sprintf("%s/functions/v1/agent-auth-api", cfg.SupabaseProjectURL)
+	}
+
+	// Ensure token path uses hardcoded DataDir
+	cfg.TokenPath = filepath.Join(DataDir, "token.json")
+
+	// Initialize auth manager
+	authManager := auth.NewAuthManager(cfg)
+
+	// Run device flow
+	logging.Info("Initiating device authorization flow...")
+	token, err := authManager.EnsureAuthenticated()
+	if err != nil {
+		logging.Error("Registration failed: %v", err)
+		os.Exit(1)
+	}
+
+	logging.Info("✓ Registration successful!")
+	logging.Info("✓ Agent ID: %s", token.AgentID)
+	logging.Info("✓ Token saved to: %s", cfg.TokenPath)
+	logging.Info("")
+	logging.Info("Next steps:")
+	logging.Info("  1. Enable and start the service: sudo systemctl enable --now nannyagent")
+	logging.Info("  2. Check status: nannyagent --status")
+	logging.Info("  3. View logs: sudo journalctl -u nannyagent -f")
+	os.Exit(0)
+}
+
+// runStatusCommand shows agent connectivity and status (stdout only)
+func runStatusCommand() {
+	// Disable syslog for status command - everything goes to stdout only
+	logging.DisableSyslogOnly()
+
+	// Load configuration
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Println("✗ Configuration: Not found")
+		os.Exit(1)
+	}
+
+	fmt.Printf("✓ API Endpoint: %s\n", cfg.SupabaseProjectURL)
+
+	// Check if token exists
+	if _, err := os.Stat(cfg.TokenPath); os.IsNotExist(err) {
+		fmt.Println("✗ Not registered")
+		fmt.Println("\nRegister with: sudo nannyagent --register")
+		os.Exit(1)
+	}
+
+	// Load and refresh token if needed
+	authManager := auth.NewAuthManager(cfg)
+	token, err := authManager.EnsureAuthenticated()
+	if err != nil {
+		fmt.Println("✗ Authentication failed")
+		os.Exit(1)
+	}
+
+	// Get Agent ID from cache file or JWT
+	agentID, err := authManager.GetCurrentAgentID()
+	if err != nil {
+		fmt.Println("✗ Failed to get Agent ID")
+		os.Exit(1)
+	}
+
+	fmt.Printf("✓ Agent ID: %s\n", agentID)
+
+	// Test connectivity by sending a heartbeat to agent-auth-api
+	metricsCollector := metrics.NewCollector(Version)
+	systemMetrics, err := metricsCollector.GatherSystemMetrics()
+	if err != nil {
+		fmt.Println("✗ Failed to gather metrics")
+		os.Exit(1)
+	}
+
+	err = metricsCollector.SendMetrics(cfg.AgentAuthURL, token.AccessToken, agentID, systemMetrics)
+	if err != nil {
+		fmt.Printf("✗ API error: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("✓ API connectivity OK")
+
+	// Check systemd service status
+	if _, err := exec.LookPath("systemctl"); err == nil {
+		cmd := exec.Command("systemctl", "is-active", "nannyagent")
+		output, _ := cmd.Output()
+		status := strings.TrimSpace(string(output))
+
+		if status == "active" {
+			fmt.Println("✓ Service running")
+		} else {
+			fmt.Printf("✗ Service %s\n", status)
+		}
+	}
+
+	os.Exit(0)
+}
+
 // runInteractiveDiagnostics starts the interactive diagnostic session
 func runInteractiveDiagnostics(agent *LinuxDiagnosticAgent) {
-	logging.Info("=== Linux eBPF-Enhanced Diagnostic Agent ===")
 	logging.Info("Linux Diagnostic Agent Started")
 	logging.Info("Enter a system issue description (or 'quit' to exit):")
 
@@ -171,21 +331,61 @@ func runInteractiveDiagnostics(agent *LinuxDiagnosticAgent) {
 }
 
 func main() {
-	// Define flags with both long and short versions
+	// Define flags (all with -- prefix for uniformity)
 	versionFlag := flag.Bool("version", false, "Show version information")
-	versionFlagShort := flag.Bool("v", false, "Show version information (short)")
 	helpFlag := flag.Bool("help", false, "Show help information")
-	helpFlagShort := flag.Bool("h", false, "Show help information (short)")
+	registerFlag := flag.Bool("register", false, "Register agent with NannyAI backend")
+	statusFlag := flag.Bool("status", false, "Show agent status and connectivity")
+	diagnoseFlag := flag.String("diagnose", "", "Run one-off diagnosis (e.g., --diagnose \"postgresql is slow\")")
+	daemonFlag := flag.Bool("daemon", false, "Run as daemon (systemd mode)")
 	flag.Parse()
 
-	// Handle --version or -v flag (no root required)
-	if *versionFlag || *versionFlagShort {
+	// Also check for commands without -- prefix (for backward compatibility)
+	// But log a warning to use -- prefix
+	if flag.NArg() > 0 {
+		cmd := flag.Arg(0)
+		switch cmd {
+		case "register":
+			logging.Warning("Please use: nannyagent --register (with -- prefix)")
+			*registerFlag = true
+		case "status":
+			logging.Warning("Please use: nannyagent --status (with -- prefix)")
+			*statusFlag = true
+		case "diagnose":
+			logging.Warning("Please use: nannyagent --diagnose (with -- prefix)")
+			if flag.NArg() > 1 {
+				*diagnoseFlag = flag.Arg(1)
+			} else {
+				*diagnoseFlag = ""
+			}
+		case "daemon":
+			logging.Warning("Please use: nannyagent --daemon (with -- prefix)")
+			*daemonFlag = true
+		}
+	}
+
+	// Whitelist: commands that don't require root or auth
+	// Handle --version flag (no root required)
+	if *versionFlag {
 		showVersion()
 	}
 
-	// Handle --help or -h flag (no root required)
-	if *helpFlag || *helpFlagShort {
+	// Handle --help flag (no root required)
+	if *helpFlag {
 		showHelp()
+	}
+
+	// Handle --status flag (no root or auth required) - EXIT IMMEDIATELY
+	if *statusFlag {
+		runStatusCommand()
+		return
+	}
+
+	// Handle --register flag (requires root, no auth needed) - EXIT IMMEDIATELY
+	if *registerFlag {
+		checkRootPrivileges()
+		runRegisterCommand()
+		return
 	}
 
 	logging.Info("NannyAgent v%s starting...", Version)
@@ -217,10 +417,48 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Get Agent ID
+	agentID, err := authManager.GetCurrentAgentID()
+	if err != nil {
+		logging.Error("Failed to get Agent ID: %v", err)
+		os.Exit(1)
+	}
+
+	// Test API connectivity with authenticated token
+	logging.Info("Testing connectivity to NannyAI API...")
+	if err := testAPIConnectivity(cfg, token.AccessToken, agentID); err != nil {
+		logging.Error("Cannot connect to NannyAI API: %v", err)
+		logging.Error("Endpoint: %s", cfg.AgentAuthURL)
+		logging.Error("Please check:")
+		logging.Error("  1. Network connectivity")
+		logging.Error("  2. Firewall settings")
+		logging.Error("  3. API endpoint in /etc/nannyagent/config.yaml")
+		os.Exit(1)
+	}
+	logging.Info("✓ API connectivity OK")
+
 	logging.Info("Authentication successful!")
 
 	// Initialize the diagnostic agent for interactive CLI use with authentication
 	agent := NewLinuxDiagnosticAgentWithAuth(authManager)
+
+	// Handle --diagnose flag (one-off diagnosis)
+	if *diagnoseFlag != "" {
+		logging.Info("Running one-off diagnosis...")
+
+		// Validate the diagnosis prompt
+		if err := validateDiagnosisPrompt(*diagnoseFlag); err != nil {
+			logging.Error("%v", err)
+			logging.Info("Example: sudo nannyagent --diagnose \"postgresql is slow and using high CPU\"")
+			os.Exit(1)
+		}
+
+		if err := agent.DiagnoseIssue(*diagnoseFlag); err != nil {
+			logging.Error("Diagnosis failed: %v", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 
 	// Initialize a separate agent for WebSocket investigations using the application model
 	// IMPORTANT: Must use WithAuth to include authorization headers for TensorZero API calls
@@ -284,6 +522,18 @@ func main() {
 			// No logging for successful heartbeats - they should be silent
 		}
 	}()
+
+	// Check if running in daemon mode
+	if *daemonFlag {
+		logging.Info("Running in daemon mode (no interactive session)")
+		logging.Info("Logs will be sent to syslog. View with: journalctl -u nannyagent -f")
+
+		// Switch to syslog-only logging (no stdout spam in daemon mode)
+		logging.EnableSyslogOnly()
+
+		// Block forever, let background goroutines handle everything
+		select {}
+	}
 
 	// Start the interactive diagnostic session (blocking)
 	runInteractiveDiagnostics(agent)

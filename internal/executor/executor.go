@@ -1,10 +1,13 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"nannyagentv2/internal/types"
@@ -43,8 +46,43 @@ func (ce *CommandExecutor) Execute(cmd types.Command) types.CommandResult {
 	// Execute command using shell for proper handling of pipes, redirects, etc.
 	execCmd := exec.CommandContext(ctx, "/bin/bash", "-c", cmd.Command)
 
-	output, err := execCmd.CombinedOutput()
-	result.Output = string(output)
+	// Set process group so we can kill all child processes
+	// This creates a new process group with the child as leader
+	execCmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+
+	// Capture output using buffers
+	var stdout, stderr bytes.Buffer
+	execCmd.Stdout = &stdout
+	execCmd.Stderr = &stderr
+
+	// Start the process - now we can safely access Process.Pid
+	if err := execCmd.Start(); err != nil {
+		result.Error = err.Error()
+		result.ExitCode = -1
+		return result
+	}
+
+	// Monitor for context cancellation and kill entire process group
+	// Now safe to access Process.Pid since Start() has completed
+	var mu sync.Mutex
+	go func() {
+		<-ctx.Done()
+		mu.Lock()
+		defer mu.Unlock()
+		if execCmd.Process != nil {
+			// Kill the entire process group (negative PID kills all processes in the group)
+			// This ensures orphaned child processes like tcpdump are also killed
+			_ = syscall.Kill(-execCmd.Process.Pid, syscall.SIGKILL)
+		}
+	}()
+
+	// Wait for process to complete
+	err := execCmd.Wait()
+
+	// Combine stdout and stderr
+	result.Output = stdout.String() + stderr.String()
 
 	if err != nil {
 		result.Error = err.Error()

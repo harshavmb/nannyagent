@@ -211,7 +211,7 @@ func (c *WebSocketClient) handleMessages() {
 			return
 		default:
 			// Set read deadline to detect connection issues
-			c.conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+			_ = c.conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 
 			var message WebSocketMessage
 			readStart := time.Now()
@@ -625,7 +625,7 @@ func (c *WebSocketClient) handlePendingInvestigation(investigation types.Pending
 		if results != nil {
 			resultsForDB["command_results"] = results
 		}
-		c.updateInvestigationStatus(investigation.ID, "failed", resultsForDB, &errorMsg)
+		_ = c.updateInvestigationStatus(investigation.ID, "failed", resultsForDB, &errorMsg)
 		// Investigation failed
 		return
 	}
@@ -659,13 +659,13 @@ func (c *WebSocketClient) handlePendingInvestigation(investigation types.Pending
 		if tzErr != nil {
 			logging.Warning("TensorZero continuation failed: %v", tzErr)
 			// Fall back to marking completed with command results only
-			c.updateInvestigationStatus(investigation.ID, "completed", resultsForDB, nil)
+			_ = c.updateInvestigationStatus(investigation.ID, "completed", resultsForDB, nil)
 			return
 		}
 
 		if len(tzResp.Choices) == 0 {
 			logging.Warning("No choices in TensorZero response")
-			c.updateInvestigationStatus(investigation.ID, "completed", resultsForDB, nil)
+			_ = c.updateInvestigationStatus(investigation.ID, "completed", resultsForDB, nil)
 			return
 		}
 
@@ -746,7 +746,7 @@ func (c *WebSocketClient) handlePendingInvestigation(investigation types.Pending
 
 	// Attach final AI response to results for DB and mark as completed_with_analysis
 	resultsForDB["ai_response"] = finalAIContent
-	c.updateInvestigationStatus(investigation.ID, "completed_with_analysis", resultsForDB, nil)
+	_ = c.updateInvestigationStatus(investigation.ID, "completed_with_analysis", resultsForDB, nil)
 }
 
 // updateInvestigationStatus updates the status of a pending investigation
