@@ -538,7 +538,7 @@ install_systemd_service() {
     cat > "$SYSTEMD_DIR/$SYSTEMD_SERVICE" << 'EOF'
 [Unit]
 Description=NannyAgent - AI-Powered Linux Diagnostic Agent
-Documentation=https://github.com/harshavmb/nannyagent
+Documentation=https://nannyai.dev/documentation
 After=network-online.target
 Wants=network-online.target
 
