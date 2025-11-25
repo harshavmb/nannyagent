@@ -360,7 +360,7 @@ func (s *InvestigationServer) handleDiagnosticExecution(requestBody map[string]i
 		commandResults = append(commandResults, result)
 
 		if result.Error != "" {
-			fmt.Printf("⚠️  Command '%s' had error: %s\n", cmd.ID, result.Error)
+			fmt.Printf("Command '%s' had error: %s\n", cmd.ID, result.Error)
 		}
 	}
 

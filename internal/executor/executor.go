@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"nannyagentv2/internal/types"
@@ -43,6 +44,23 @@ func (ce *CommandExecutor) Execute(cmd types.Command) types.CommandResult {
 	// Execute command using shell for proper handling of pipes, redirects, etc.
 	execCmd := exec.CommandContext(ctx, "/bin/bash", "-c", cmd.Command)
 
+	// Set process group so we can kill all child processes
+	// This creates a new process group with the child as leader
+	execCmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+
+	// Monitor for context cancellation and kill entire process group
+	go func() {
+		<-ctx.Done()
+		if execCmd.Process != nil {
+			// Kill the entire process group (negative PID kills all processes in the group)
+			// This ensures orphaned child processes like tcpdump are also killed
+			syscall.Kill(-execCmd.Process.Pid, syscall.SIGKILL)
+		}
+	}()
+
+	// Capture output
 	output, err := execCmd.CombinedOutput()
 	result.Output = string(output)
 

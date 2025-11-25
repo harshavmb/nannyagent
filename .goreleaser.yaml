@@ -1,0 +1,69 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: nannyagent
+    binary: nannyagent
+    main: .
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.Version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+
+archives:
+  - id: nannyagent
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version}}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+      - config.yaml.example
+      - nannyagent.service
+      - install.sh
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'README'
+      - Merge pull request
+      - Merge branch
+
+release:
+  github:
+    owner: harshavmb
+    name: nannyagent
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## nannyagent {{.Tag}}
+    
+    Install with:
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/harshavmb/nannyagent/main/install.sh | sudo bash
+    ```
+  footer: |
+    **Full Changelog**: https://github.com/harshavmb/nannyagent/compare/{{.PreviousTag}}...{{.Tag}}
+
+snapshot:
+  version_template: "{{ .Version }}-SNAPSHOT-{{.ShortCommit}}"

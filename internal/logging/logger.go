@@ -38,6 +38,7 @@ type Logger struct {
 	syslogWriter *syslog.Writer
 	level        LogLevel
 	showEmoji    bool
+	syslogOnly   bool // If true, only log to syslog (daemon mode)
 }
 
 var defaultLogger *Logger
@@ -58,8 +59,8 @@ func NewLoggerWithLevel(level LogLevel) *Logger {
 		showEmoji: os.Getenv("LOG_NO_EMOJI") != "true",
 	}
 
-	// Try to connect to syslog
-	if writer, err := syslog.New(syslog.LOG_INFO|syslog.LOG_DAEMON, "nannyagentv2"); err == nil {
+	// Try to connect to syslog (use "nannyagent" identifier for consistency)
+	if writer, err := syslog.New(syslog.LOG_INFO|syslog.LOG_DAEMON, "nannyagent"); err == nil {
 		l.syslogWriter = writer
 	}
 
@@ -90,20 +91,24 @@ func (l *Logger) logMessage(level LogLevel, format string, args ...interface{}) 
 	}
 
 	msg := fmt.Sprintf(format, args...)
-	prefix := fmt.Sprintf("[%s]", level.String())
 
-	// Add emoji prefix if enabled
+	// Set prefix based on showEmoji flag
+	var prefix string
 	if l.showEmoji {
 		switch level {
 		case LevelDebug:
-			prefix = "🔍 " + prefix
+			prefix = "[DEBUG]"
 		case LevelInfo:
-			prefix = "ℹ️  " + prefix
+			prefix = "[INFO]"
 		case LevelWarning:
-			prefix = "⚠️  " + prefix
+			prefix = "[WARN]"
 		case LevelError:
-			prefix = "❌ " + prefix
+			prefix = "[ERROR]"
+		default:
+			prefix = fmt.Sprintf("[%s]", level.String())
 		}
+	} else {
+		prefix = fmt.Sprintf("[%s]", level.String())
 	}
 
 	// Log to syslog if available
@@ -120,8 +125,10 @@ func (l *Logger) logMessage(level LogLevel, format string, args ...interface{}) 
 		}
 	}
 
-	// Print to stdout/stderr
-	log.Printf("%s %s", prefix, msg)
+	// Print to stdout/stderr (unless syslog-only mode)
+	if !l.syslogOnly {
+		log.Printf("%s %s", prefix, msg)
+	}
 }
 
 func (l *Logger) Debug(format string, args ...interface{}) {
@@ -181,4 +188,14 @@ func SetLevel(level LogLevel) {
 // GetLevel gets the global logger level
 func GetLevel() LogLevel {
 	return defaultLogger.GetLevel()
+}
+
+// EnableSyslogOnly sets syslog-only mode (no stdout/stderr)
+func EnableSyslogOnly() {
+	defaultLogger.syslogOnly = true
+}
+
+// DisableSyslogOnly disables syslog-only mode (logs to both syslog and stdout/stderr)
+func DisableSyslogOnly() {
+	defaultLogger.syslogOnly = false
 }

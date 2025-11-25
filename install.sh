@@ -2,15 +2,20 @@
 set -e
 
 # NannyAgent Installer Script
-# Version: 0.0.1
-# Description: Installs NannyAgent Linux diagnostic tool with eBPF capabilities
-
-VERSION="0.0.1"
+# Description: Installs NannyAgent Linux diagnostic tool with eBPF capabilities and systemd support
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/nannyagent"
 DATA_DIR="/var/lib/nannyagent"
 BINARY_NAME="nannyagent"
 LOCKFILE="${DATA_DIR}/.nannyagent.lock"
+SYSTEMD_SERVICE="nannyagent.service"
+SYSTEMD_DIR="/etc/systemd/system"
+
+# GitHub repository for releases
+GITHUB_REPO="${GITHUB_REPO:-harshavmb/nannyagent}"
+INSTALL_FROM_SOURCE="${INSTALL_FROM_SOURCE:-false}"
+# Auto-detect latest version if not specified
+INSTALL_VERSION="${INSTALL_VERSION:-latest}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -112,34 +117,20 @@ check_kernel_version() {
 check_existing_installation() {
     log_info "Checking for existing installation..."
     
-    # Check if lock file exists
-    if [ -f "$LOCKFILE" ]; then
-        log_error "An installation lock file exists at $LOCKFILE"
-        log_error "Another instance of NannyAgent may already be installed or running"
-        log_error "If you're sure no other instance exists, remove the lock file:"
-        log_error "  sudo rm $LOCKFILE"
-        exit 6
-    fi
-    
-    # Check if data directory exists and has files
-    if [ -d "$DATA_DIR" ]; then
-        FILE_COUNT=$(find "$DATA_DIR" -type f 2>/dev/null | wc -l)
-        if [ "$FILE_COUNT" -gt 0 ]; then
-            log_error "Data directory $DATA_DIR already exists with $FILE_COUNT files"
-            log_error "Another instance of NannyAgent may already be installed"
-            log_error "To reinstall, please remove the data directory first:"
-            log_error "  sudo rm -rf $DATA_DIR"
-            exit 6
-        fi
-    fi
-    
     # Check if binary already exists
     if [ -f "$INSTALL_DIR/$BINARY_NAME" ]; then
-        log_warning "Binary $INSTALL_DIR/$BINARY_NAME already exists"
+        CURRENT_VERSION=$("$INSTALL_DIR/$BINARY_NAME" --version 2>/dev/null | grep -oP 'version \K[0-9.]+' || echo "unknown")
+        log_warning "Binary $INSTALL_DIR/$BINARY_NAME already exists (version: $CURRENT_VERSION)"
         log_warning "It will be replaced with the new version"
     fi
     
-    log_success "No conflicting installation found"
+    # Check if data directory exists with registered agent
+    if [ -f "$DATA_DIR/token.json" ]; then
+        log_info "Detected existing agent registration (token found)"
+        log_info "Agent registration will be preserved during upgrade"
+    fi
+    
+    log_success "Installation check complete"
 }
 
 # Install required dependencies (eBPF tools)
@@ -158,9 +149,9 @@ install_dependencies() {
             exit 7
         }
         
-        # Install bpfcc-tools and bpftrace
-        log_info "Installing bpfcc-tools and bpftrace..."
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bpfcc-tools bpftrace linux-headers-$(uname -r) 2>&1 || {
+        # Install bpfcc-tools, bpftrace, and unzip
+        log_info "Installing bpfcc-tools, bpftrace, and unzip..."
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bpfcc-tools bpftrace linux-headers-$(uname -r) unzip 2>&1 || {
             log_error "Failed to install eBPF tools"
             exit 7
         }
@@ -169,8 +160,8 @@ install_dependencies() {
         PKG_MANAGER="dnf"
         log_info "Detected Fedora/RHEL 8+ system"
         
-        log_info "Installing bcc-tools and bpftrace..."
-        dnf install -y -q bcc-tools bpftrace kernel-devel 2>&1 || {
+        log_info "Installing bcc-tools, bpftrace, and unzip..."
+        dnf install -y -q bcc-tools bpftrace kernel-devel unzip 2>&1 || {
             log_error "Failed to install eBPF tools"
             exit 7
         }
@@ -179,8 +170,8 @@ install_dependencies() {
         PKG_MANAGER="yum"
         log_info "Detected CentOS/RHEL 7 system"
         
-        log_info "Installing bcc-tools and bpftrace..."
-        yum install -y -q bcc-tools bpftrace kernel-devel 2>&1 || {
+        log_info "Installing bcc-tools, bpftrace, and unzip..."
+        yum install -y -q bcc-tools bpftrace kernel-devel unzip 2>&1 || {
             log_error "Failed to install eBPF tools"
             exit 7
         }
@@ -210,6 +201,112 @@ install_dependencies() {
     log_success "eBPF tools installed successfully"
 }
 
+# Download pre-built binary from GitHub releases
+download_binary() {
+    log_info "Downloading pre-built NannyAgent binary for $ARCH..."
+    
+    # Determine version to install
+    if [ "$INSTALL_VERSION" = "latest" ]; then
+        log_info "Fetching latest release version from GitHub..."
+        if command -v curl &> /dev/null; then
+            LATEST_VERSION=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
+        elif command -v wget &> /dev/null; then
+            LATEST_VERSION=$(wget -qO- "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
+        else
+            log_error "Neither curl nor wget found. Cannot fetch latest version."
+            log_error "Please install curl or wget"
+            exit 8
+        fi
+        
+        if [ -z "$LATEST_VERSION" ]; then
+            log_error "Failed to fetch latest version from GitHub"
+            log_error "Please check your internet connection or try building from source"
+            log_error "To build from source: export INSTALL_FROM_SOURCE=true"
+            exit 8
+        fi
+        
+        VERSION="$LATEST_VERSION"
+        log_info "Latest version: v$VERSION"
+    else
+        VERSION="$INSTALL_VERSION"
+        log_info "Installing version: v$VERSION"
+    fi
+    
+    # Download URLs from GitHub releases (goreleaser format)
+    ARCHIVE_NAME="nannyagent_${VERSION}_linux_${ARCH}.tar.gz"
+    DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/${ARCHIVE_NAME}"
+    CHECKSUM_URL="https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/checksums.txt"
+    
+    log_info "Download URL: $DOWNLOAD_URL"
+    
+    # Download archive using curl or wget
+    if command -v curl &> /dev/null; then
+        curl -fsSL "$DOWNLOAD_URL" -o "$ARCHIVE_NAME" || {
+            log_error "Failed to download binary from $DOWNLOAD_URL"
+            log_error "Please check your internet connection or try building from source"
+            log_error "To build from source: export INSTALL_FROM_SOURCE=true"
+            exit 8
+        }
+        curl -fsSL "$CHECKSUM_URL" -o "checksums.txt" || {
+            log_warning "Failed to download checksums file"
+        }
+    elif command -v wget &> /dev/null; then
+        wget -q "$DOWNLOAD_URL" -O "$ARCHIVE_NAME" || {
+            log_error "Failed to download binary from $DOWNLOAD_URL"
+            log_error "Please check your internet connection or try building from source"
+            log_error "To build from source: export INSTALL_FROM_SOURCE=true"
+            exit 8
+        }
+        wget -q "$CHECKSUM_URL" -O "checksums.txt" || {
+            log_warning "Failed to download checksums file"
+        }
+    else
+        log_error "Neither curl nor wget found. Cannot download binary."
+        log_error "Please install curl or wget"
+        exit 8
+    fi
+    
+    # Verify checksum if available
+    if [ -f "checksums.txt" ]; then
+        log_info "Verifying checksum..."
+        if command -v sha256sum &> /dev/null; then
+            grep "$ARCHIVE_NAME" checksums.txt | sha256sum -c - || {
+                log_error "Checksum verification failed!"
+                log_error "Downloaded file may be corrupted or tampered with"
+                rm -f "$ARCHIVE_NAME" checksums.txt
+                exit 8
+            }
+            log_success "Checksum verified successfully"
+            rm -f checksums.txt
+        else
+            log_warning "sha256sum not found, skipping checksum verification"
+        fi
+    fi
+    
+    # Extract binary from tar.gz
+    if command -v tar &> /dev/null; then
+        tar -xzf "$ARCHIVE_NAME" "$BINARY_NAME" || {
+            log_error "Failed to extract binary from archive"
+            exit 8
+        }
+        rm "$ARCHIVE_NAME"
+    else
+        log_error "tar not found. Please install tar package"
+        exit 8
+    fi
+    
+    # Make binary executable
+    chmod +x "$BINARY_NAME"
+    
+    # Test the binary
+    if ./"$BINARY_NAME" --version &>/dev/null; then
+        log_success "Binary downloaded and tested successfully for $ARCH (version: v$VERSION)"
+    else
+        log_error "Binary download succeeded but execution test failed"
+        exit 8
+    fi
+}
+
 # Check Go installation
 check_go() {
     log_info "Checking for Go installation..."
@@ -217,7 +314,7 @@ check_go() {
     if ! command -v go &> /dev/null; then
         log_error "Go is not installed"
         log_error "Please install Go 1.23 or higher from https://golang.org/dl/"
-        exit 8
+        exit 9
     fi
     
     GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
@@ -235,6 +332,14 @@ build_binary() {
         exit 9
     fi
     
+    # Read version from VERSION file
+    if [ -f "VERSION" ]; then
+        BUILD_VERSION=$(cat VERSION)
+    else
+        BUILD_VERSION="dev"
+    fi
+    log_info "Building version: $BUILD_VERSION"
+    
     # Get Go dependencies
     log_info "Downloading Go dependencies..."
     go mod download || {
@@ -245,7 +350,7 @@ build_binary() {
     # Build the binary for the current architecture
     log_info "Compiling binary for $ARCH..."
     CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -a -installsuffix cgo \
-        -ldflags "-w -s -X main.Version=$VERSION" \
+        -ldflags "-w -s -X main.Version=$BUILD_VERSION" \
         -o "$BINARY_NAME" . || {
         log_error "Failed to build binary for $ARCH"
         exit 9
@@ -262,7 +367,7 @@ build_binary() {
     
     # Test the binary
     if ./"$BINARY_NAME" --version &>/dev/null; then
-        log_success "Binary built and tested successfully for $ARCH"
+        log_success "Binary built and tested successfully for $ARCH (version: $BUILD_VERSION)"
     else
         log_error "Binary build succeeded but execution test failed"
         exit 9
@@ -324,6 +429,31 @@ create_directories() {
     }
     chmod 700 "$DATA_DIR"
     
+    # Create default config.env if it doesn't exist
+    if [ ! -f "$CONFIG_DIR/config.env" ]; then
+        log_info "Creating default configuration file..."
+        cat > "$CONFIG_DIR/config.env" << 'EOF'
+# NannyAgent Configuration
+# This file is loaded by both the systemd service and manual CLI commands
+
+# Supabase Project URL (required)
+SUPABASE_PROJECT_URL=https://<supabase-project>.supabase.co
+
+# Optional: Override default portal URL
+# NANNYAI_PORTAL_URL=https://nannyai.dev
+
+# Optional: Custom token storage path
+# TOKEN_PATH=/var/lib/nannyagent/token.json
+
+# Optional: Enable debug mode
+# DEBUG=false
+EOF
+        chmod 600 "$CONFIG_DIR/config.env"
+        log_success "Default configuration created at $CONFIG_DIR/config.env"
+    else
+        log_info "Configuration file already exists at $CONFIG_DIR/config.env"
+    fi
+    
     log_success "Directories created successfully"
 }
 
@@ -340,9 +470,48 @@ install_binary() {
     # Set permissions
     chmod 755 "$INSTALL_DIR/$BINARY_NAME"
     
-    # Copy .env to config if it exists
+    # Create config.yaml if it doesn't exist
+    if [ ! -f "$CONFIG_DIR/config.yaml" ]; then
+        log_info "Creating default configuration at $CONFIG_DIR/config.yaml..."
+        cat > "$CONFIG_DIR/config.yaml" << 'EOF'
+# NannyAgent Configuration File
+# Location: /etc/nannyagent/config.yaml
+
+# API Endpoint (required)
+# Default: https://api.nannyai.dev
+supabase_project_url: "https://api.nannyai.dev"
+
+# Device Authorization URL (optional, derived from supabase_project_url if not set)
+device_auth_url: ""
+
+# Agent Auth API URL (optional, derived from supabase_project_url if not set)
+agent_auth_url: ""
+
+# Portal URL for device authorization (optional)
+# Default: https://nannyai.dev
+portal_url: "https://nannyai.dev"
+
+# Token storage path (optional)
+# Default: /var/lib/nannyagent/token.json
+token_path: "/var/lib/nannyagent/token.json"
+
+# Metrics collection interval in seconds (optional)
+# Default: 30
+metrics_interval: 30
+
+# Debug mode (optional)
+# Default: false
+debug: false
+EOF
+        chmod 600 "$CONFIG_DIR/config.yaml"
+        log_success "Created default config.yaml"
+    else
+        log_info "Configuration file already exists at $CONFIG_DIR/config.yaml"
+    fi
+    
+    # Copy .env to config if it exists (backward compatibility)
     if [ -f ".env" ]; then
-        log_info "Copying configuration to $CONFIG_DIR..."
+        log_info "Copying .env configuration to $CONFIG_DIR..."
         cp .env "$CONFIG_DIR/config.env"
         chmod 600 "$CONFIG_DIR/config.env"
     fi
@@ -354,6 +523,68 @@ install_binary() {
     log_success "Binary installed successfully"
 }
 
+# Install systemd service
+install_systemd_service() {
+    log_info "Installing systemd service..."
+    
+    # Check if systemd is available
+    if ! command -v systemctl &> /dev/null; then
+        log_warning "systemctl not found. Skipping systemd service installation."
+        log_warning "You can run nannyagent manually: sudo $INSTALL_DIR/$BINARY_NAME"
+        return
+    fi
+    
+    # Create systemd service file
+    cat > "$SYSTEMD_DIR/$SYSTEMD_SERVICE" << 'EOF'
+[Unit]
+Description=NannyAgent - AI-Powered Linux Diagnostic Agent
+Documentation=https://github.com/nannyml/nannyagentv2
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nannyagent --daemon
+Restart=always
+RestartSec=10s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nannyagent
+
+# Environment
+EnvironmentFile=-/etc/nannyagent/config.env
+WorkingDirectory=/var/lib/nannyagent
+
+# Run as root (required for eBPF)
+User=root
+Group=root
+
+# Security hardening
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nannyagent
+NoNewPrivileges=false
+AmbientCapabilities=CAP_SYS_ADMIN CAP_BPF CAP_PERFMON
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    chmod 644 "$SYSTEMD_DIR/$SYSTEMD_SERVICE"
+    
+    # Reload systemd daemon
+    systemctl daemon-reload || {
+        log_error "Failed to reload systemd daemon"
+        exit 12
+    }
+    
+    log_success "Systemd service installed successfully"
+    log_info "To enable and start the service:"
+    log_info "  sudo systemctl enable --now $SYSTEMD_SERVICE"
+}
+
 # Display post-installation information
 post_install_info() {
     echo ""
@@ -361,18 +592,33 @@ post_install_info() {
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
-    echo "  Configuration: $CONFIG_DIR/config.env"
+    echo "  Configuration: $CONFIG_DIR/config.yaml"
     echo "  Data Directory: $DATA_DIR"
     echo "  Binary Location: $INSTALL_DIR/$BINARY_NAME"
+    echo "  Service: $SYSTEMD_DIR/$SYSTEMD_SERVICE"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
     echo "Next steps:"
     echo ""
-    echo "  1. Configure your Supabase URL in $CONFIG_DIR/config.env"
-    echo "  2. Run the agent: sudo $BINARY_NAME"
-    echo "  3. Check version: $BINARY_NAME --version"
-    echo "  4. Get help: $BINARY_NAME --help"
+    echo "  1. Configure your Supabase URL in $CONFIG_DIR/config.yaml"
+    echo "     Default: https://api.nannyai.dev"
+    echo ""
+    echo "  2. Register the agent with NannyAI:"
+    echo "     sudo nannyagent register"
+    echo ""
+    echo "  3. Enable and start the systemd service:"
+    echo "     sudo systemctl enable --now nannyagent"
+    echo ""
+    echo "  4. Check agent status:"
+    echo "     nannyagent --status"
+    echo "     sudo systemctl status nannyagent"
+    echo ""
+    echo "  5. Run a one-off diagnosis:"
+    echo "     nannyagent --diagnose \"postgresql is having troubles\""
+    echo ""
+    echo "  6. View logs:"
+    echo "     sudo journalctl -u nannyagent -f"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo ""
@@ -391,11 +637,21 @@ main() {
     check_kernel_version
     check_existing_installation
     install_dependencies
-    check_go
-    build_binary
-    check_connectivity
     create_directories
+    
+    # Download pre-built binary or build from source
+    if [ "$INSTALL_FROM_SOURCE" = "true" ] || [ -f "go.mod" ]; then
+        log_info "Building from source..."
+        check_go
+        build_binary
+    else
+        log_info "Downloading pre-built binary..."
+        download_binary
+    fi
+    
+    check_connectivity
     install_binary
+    install_systemd_service
     post_install_info
 }
 

@@ -30,3 +30,4 @@ nanny-agent*
 
 # Build directory
 build/
+dist/
