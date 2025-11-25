@@ -115,13 +115,13 @@ func (l *Logger) logMessage(level LogLevel, format string, args ...interface{}) 
 	if l.syslogWriter != nil {
 		switch level {
 		case LevelDebug:
-			l.syslogWriter.Debug(msg)
+			_ = l.syslogWriter.Debug(msg)
 		case LevelInfo:
-			l.syslogWriter.Info(msg)
+			_ = l.syslogWriter.Info(msg)
 		case LevelWarning:
-			l.syslogWriter.Warning(msg)
+			_ = l.syslogWriter.Warning(msg)
 		case LevelError:
-			l.syslogWriter.Err(msg)
+			_ = l.syslogWriter.Err(msg)
 		}
 	}
 

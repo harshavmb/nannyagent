@@ -62,11 +62,11 @@ func TestCommandExecutor_Execute_ChildProcessKilled(t *testing.T) {
 	// This addresses the bug where tcpdump would hang forever waiting for packets
 	executor := NewCommandExecutor(2 * time.Second)
 
-	// Simulate the problematic tcpdump scenario: a command that waits indefinitely
-	// Even with `timeout` wrapper, child processes can outlive parents without proper handling
+	// Simulate the problematic tcpdump scenario: a command that spawns a child that waits
+	// Using sh -c to create a parent-child relationship
 	cmd := types.Command{
 		ID:          "test_child_kill",
-		Command:     "timeout 10 sleep 30", // Would wait 10s, but executor timeout is 2s
+		Command:     "sh -c 'sleep 30'", // Child process that would wait 30s
 		Description: "Test child process timeout enforcement",
 	}
 
@@ -74,13 +74,13 @@ func TestCommandExecutor_Execute_ChildProcessKilled(t *testing.T) {
 	result := executor.Execute(cmd)
 	elapsed := time.Since(start)
 
-	// Critical test: executor timeout (2s) must override command's timeout (10s)
+	// Critical test: executor timeout (2s) must kill the process quickly
 	// This proves the process group killing works
 	if elapsed > 3*time.Second {
-		t.Errorf("Command took too long: %v (expected ~2s, NOT 10s from timeout command)", elapsed)
+		t.Errorf("Command took too long: %v (expected ~2s)", elapsed)
 		t.Error("Process group killing is NOT working - child processes are not being killed!")
 	} else {
-		t.Logf("✓ Executor timeout correctly killed command after %v (before its own 10s timeout)", elapsed)
+		t.Logf("✓ Executor timeout correctly killed command after %v", elapsed)
 	}
 
 	if result.ExitCode == 0 {
@@ -96,7 +96,7 @@ func TestCommandExecutor_Execute_LongRunningChildProcess(t *testing.T) {
 	// Using 'cat' which will wait forever for input (similar to tcpdump waiting for packets)
 	cmd := types.Command{
 		ID:          "test_waiting_child",
-		Command:     "timeout 10 cat > /dev/null",
+		Command:     "cat > /dev/null",
 		Description: "Test long-running child process gets killed",
 	}
 
@@ -104,7 +104,7 @@ func TestCommandExecutor_Execute_LongRunningChildProcess(t *testing.T) {
 	result := executor.Execute(cmd)
 	elapsed := time.Since(start)
 
-	// Should timeout within ~3 seconds (executor timeout), not 10 seconds (timeout command)
+	// Should timeout within ~3 seconds (executor timeout)
 	if elapsed > 4*time.Second {
 		t.Errorf("Command took too long: %v (expected ~3s)", elapsed)
 	}

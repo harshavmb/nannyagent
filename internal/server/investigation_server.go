@@ -152,7 +152,7 @@ func (s *InvestigationServer) handleHealth(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // handleStatus responds with agent status and capabilities
@@ -197,7 +197,7 @@ func (s *InvestigationServer) handleStatus(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // sendCommandResultsToTensorZero sends command results back to TensorZero and continues conversation
@@ -306,13 +306,13 @@ func (s *InvestigationServer) handleInvestigation(w http.ResponseWriter, r *http
 		// This is a DiagnosticResponse with commands to execute
 		response := s.handleDiagnosticExecution(requestBody)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 
 	case "resolution":
 		// This is a ResolutionResponse - final result, just acknowledge
 		fmt.Printf("📋 Received final resolution from backend\n")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":  true,
 			"message":  "Resolution received and acknowledged",
 			"agent_id": s.agentID,

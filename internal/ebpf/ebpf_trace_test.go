@@ -455,9 +455,9 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 
 			// This will trigger sys_openat syscalls
 			if file, err := os.Create(testFile); err == nil {
-				file.WriteString("BCC trace test")
-				file.Close()
-				os.Remove(testFile)
+				_, _ = file.WriteString("BCC trace test")
+				_ = file.Close()
+				_ = os.Remove(testFile)
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
@@ -470,7 +470,7 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 	result, err := manager.GetTraceResult(traceID)
 	if err != nil {
 		// Try to stop the trace if it's still running
-		manager.StopTrace(traceID)
+		_ = manager.StopTrace(traceID)
 		t.Fatalf("❌ Failed to get trace results: %v", err)
 	}
 
@@ -615,17 +615,17 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 				for j := 0; j < 3; j++ {
 					testFile := fmt.Sprintf("/tmp/io_test_%d.txt", j)
 					if file, err := os.Create(testFile); err == nil {
-						file.WriteString("BCC tracing test data for I/O operations")
-						file.Sync()
-						file.Close()
+						_, _ = file.WriteString("BCC tracing test data for I/O operations")
+						_ = file.Sync()
+						_ = file.Close()
 
 						// Read the file back
 						if readFile, err := os.Open(testFile); err == nil {
 							buffer := make([]byte, 1024)
-							readFile.Read(buffer)
-							readFile.Close()
+							_, _ = readFile.Read(buffer)
+							_ = readFile.Close()
 						}
-						os.Remove(testFile)
+						_ = os.Remove(testFile)
 					}
 					time.Sleep(200 * time.Millisecond)
 				}
@@ -639,11 +639,11 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 						for k := range data {
 							data[k] = byte(k % 256)
 						}
-						file.Write(data)
-						file.Sync() // Force write to disk
-						file.Close()
+						_, _ = file.Write(data)
+						_ = file.Sync() // Force write to disk
+						_ = file.Close()
 					}
-					os.Remove(testFile)
+					_ = os.Remove(testFile)
 					time.Sleep(300 * time.Millisecond)
 				}
 			case strings.Contains(target, "sched:"):
@@ -665,7 +665,7 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 					for k := range data {
 						data[k] = byte(k % 256)
 					}
-					data = nil // Allow GC
+					_ = data // Use data to avoid unused warning
 					time.Sleep(200 * time.Millisecond)
 				}
 			case strings.Contains(target, "sys_connect") || strings.Contains(target, "sys_accept"):
@@ -676,10 +676,10 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 				for j := 0; j < 3; j++ {
 					testFile := fmt.Sprintf("/tmp/generic_test_%d.txt", j)
 					if file, err := os.Create(testFile); err == nil {
-						file.WriteString("Generic test activity")
-						file.Close()
+						_, _ = file.WriteString("Generic test activity")
+						_ = file.Close()
 					}
-					os.Remove(testFile)
+					_ = os.Remove(testFile)
 					time.Sleep(300 * time.Millisecond)
 				}
 			}
@@ -690,7 +690,7 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 
 		testResult, err := manager.GetTraceResult(testTraceID)
 		if err != nil {
-			manager.StopTrace(testTraceID)
+			_ = manager.StopTrace(testTraceID)
 			fmt.Printf("   ⚠️  Result error: %v\n", err)
 			continue
 		}

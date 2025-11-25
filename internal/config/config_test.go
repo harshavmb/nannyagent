@@ -67,8 +67,8 @@ DEBUG=true
 
 	// Change to temp directory so findEnvFile won't find project .env
 	origDir, _ := os.Getwd()
-	defer os.Chdir(origDir)
-	os.Chdir(tmpDir)
+	defer func() { _ = os.Chdir(origDir) }()
+	_ = os.Chdir(tmpDir)
 
 	// Set environment variables by loading the file
 	os.Setenv("SUPABASE_PROJECT_URL", "https://env.supabase.co")
@@ -249,7 +249,7 @@ func TestFindEnvFile(t *testing.T) {
 
 	// Change to subdirectory
 	origDir, _ := os.Getwd()
-	defer os.Chdir(origDir)
+	defer func() { _ = os.Chdir(origDir) }()
 	err = os.Chdir(subDir)
 	if err != nil {
 		t.Fatalf("Failed to change directory: %v", err)
