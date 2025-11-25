@@ -78,7 +78,7 @@ Replace your current system prompt with the content from `TENSORZERO_SYSTEM_PROM
 }
 ```
 
-### 3. eBPF Program Categories (AI Guidelines)
+### 3. eBPF Program Categories (AI Guidelines) 
 
 The system prompt now includes specific eBPF program recommendations:
 

@@ -31,3 +31,6 @@ nanny-agent*
 # Build directory
 build/
 dist/
+
+# Ignore Gemini prompt
+GEMINI.md
