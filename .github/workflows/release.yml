@@ -2,8 +2,8 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -26,18 +26,31 @@ jobs:
 
     - name: Get version from VERSION file
       id: get_version
-      run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+      run: echo "VERSION=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
-    - name: Validate tag matches VERSION file
+    - name: Check if tag already exists
+      id: check_tag
       run: |
-        TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-        FILE_VERSION="${{ steps.get_version.outputs.VERSION }}"
-        if [ "$TAG_VERSION" != "$FILE_VERSION" ]; then
-          echo "Error: Tag version (v$TAG_VERSION) does not match VERSION file ($FILE_VERSION)"
-          exit 1
+        VERSION="${{ steps.get_version.outputs.VERSION }}"
+        if [ -n "$(git tag -l "v$VERSION")" ]; then
+          echo "Tag v$VERSION already exists"
+          echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "Tag v$VERSION does not exist"
+          echo "tag_exists=false" >> "$GITHUB_OUTPUT"
         fi
 
+    - name: Create and push tag
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: |
+        VERSION="${{ steps.get_version.outputs.VERSION }}"
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git tag -a "v$VERSION" -m "Release v$VERSION"
+        git push origin "v$VERSION"
+
     - name: Run GoReleaser
+      if: steps.check_tag.outputs.tag_exists == 'false'
       uses: goreleaser/goreleaser-action@v6
       with:
         distribution: goreleaser
@@ -45,3 +58,15 @@ jobs:
         args: release --clean
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload release artifacts
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-artifacts
+        path: dist/*
+        retention-days: 30
+
+    - name: Skip release (tag already exists)
+      if: steps.check_tag.outputs.tag_exists == 'true'
+      run: echo "Skipping release - tag v${{ steps.get_version.outputs.VERSION }} already exists"
