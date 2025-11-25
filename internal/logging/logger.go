@@ -37,7 +37,6 @@ func (l LogLevel) String() string {
 type Logger struct {
 	syslogWriter *syslog.Writer
 	level        LogLevel
-	showEmoji    bool
 	syslogOnly   bool // If true, only log to syslog (daemon mode)
 }
 
@@ -55,8 +54,7 @@ func NewLogger() *Logger {
 // NewLoggerWithLevel creates a logger with specified level
 func NewLoggerWithLevel(level LogLevel) *Logger {
 	l := &Logger{
-		level:     level,
-		showEmoji: os.Getenv("LOG_NO_EMOJI") != "true",
+		level: level,
 	}
 
 	// Try to connect to syslog (use "nannyagent" identifier for consistency)
@@ -92,24 +90,8 @@ func (l *Logger) logMessage(level LogLevel, format string, args ...interface{}) 
 
 	msg := fmt.Sprintf(format, args...)
 
-	// Set prefix based on showEmoji flag
-	var prefix string
-	if l.showEmoji {
-		switch level {
-		case LevelDebug:
-			prefix = "[DEBUG]"
-		case LevelInfo:
-			prefix = "[INFO]"
-		case LevelWarning:
-			prefix = "[WARN]"
-		case LevelError:
-			prefix = "[ERROR]"
-		default:
-			prefix = fmt.Sprintf("[%s]", level.String())
-		}
-	} else {
-		prefix = fmt.Sprintf("[%s]", level.String())
-	}
+	// Set prefix based on log level
+	prefix := fmt.Sprintf("[%s]", level.String())
 
 	// Log to syslog if available
 	if l.syslogWriter != nil {
