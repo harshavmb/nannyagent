@@ -364,11 +364,11 @@ func (am *AuthManager) EnsureAuthenticated() (*types.AuthToken, error) {
 				return newToken, nil
 			}
 		} else {
-			fmt.Printf("⚠️  Token refresh failed: %v\n", refreshErr)
+			fmt.Printf("WARNING: Token refresh failed: %v\n", refreshErr)
 		}
 	}
 
-	fmt.Println("📝 Initiating new device registration...")
+	fmt.Println("Initiating new device registration...")
 	return am.RegisterDevice()
 }
 
