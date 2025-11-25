@@ -538,7 +538,7 @@ install_systemd_service() {
     cat > "$SYSTEMD_DIR/$SYSTEMD_SERVICE" << 'EOF'
 [Unit]
 Description=NannyAgent - AI-Powered Linux Diagnostic Agent
-Documentation=https://github.com/nannyml/nannyagentv2
+Documentation=https://github.com/harshavmb/nannyagent
 After=network-online.target
 Wants=network-online.target
 
@@ -605,7 +605,7 @@ post_install_info() {
     echo "     Default: https://api.nannyai.dev"
     echo ""
     echo "  2. Register the agent with NannyAI:"
-    echo "     sudo nannyagent register"
+    echo "     sudo nannyagent --register"
     echo ""
     echo "  3. Enable and start the systemd service:"
     echo "     sudo systemctl enable --now nannyagent"
@@ -615,7 +615,7 @@ post_install_info() {
     echo "     sudo systemctl status nannyagent"
     echo ""
     echo "  5. Run a one-off diagnosis:"
-    echo "     nannyagent --diagnose \"postgresql is having troubles\""
+    echo "     sudo nannyagent --diagnose \"postgresql is having troubles\""
     echo ""
     echo "  6. View logs:"
     echo "     sudo journalctl -u nannyagent -f"

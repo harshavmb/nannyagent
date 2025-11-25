@@ -24,16 +24,7 @@ const (
 	DataDir = "/var/lib/nannyagent"
 )
 
-var Version = "dev" // Will be set by build ldflags or read from VERSION file
-
-func init() {
-	// Try to read version from VERSION file if not set by ldflags
-	if Version == "dev" {
-		if data, err := os.ReadFile("VERSION"); err == nil {
-			Version = strings.TrimSpace(string(data))
-		}
-	}
-}
+var Version = "dev" // Will be set by build ldflags (e.g., -ldflags "-X main.Version=1.0.0")
 
 // showVersion displays the version information (stdout only, no syslog)
 func showVersion() {
@@ -62,7 +53,7 @@ func showHelp() {
 	fmt.Println("  sudo nannyagent --diagnose \"postgresql is slow\"")
 	fmt.Println("  sudo nannyagent    # Interactive mode")
 	fmt.Println()
-	fmt.Printf("Documentation: https://test.nannyai.dev/documentation\n")
+	fmt.Printf("Documentation: https://github.com/harshavmb/nannyagent\n")
 	os.Exit(0)
 }
 
@@ -170,7 +161,9 @@ func checkExistingAgentInstance() error {
 	}
 
 	return nil
-} // runRegisterCommand handles agent registration
+}
+
+// runRegisterCommand handles agent registration
 func runRegisterCommand() {
 	logging.Info("=== NannyAgent Registration ===")
 
@@ -358,6 +351,16 @@ func main() {
 		case "status":
 			logging.Warning("Please use: nannyagent --status (with -- prefix)")
 			*statusFlag = true
+		case "diagnose":
+			logging.Warning("Please use: nannyagent --diagnose (with -- prefix)")
+			if flag.NArg() > 1 {
+				*diagnoseFlag = flag.Arg(1)
+			} else {
+				*diagnoseFlag = ""
+			}
+		case "daemon":
+			logging.Warning("Please use: nannyagent --daemon (with -- prefix)")
+			*daemonFlag = true
 		}
 	}
 
