@@ -53,7 +53,7 @@ func showHelp() {
 	fmt.Println("  sudo nannyagent --diagnose \"postgresql is slow\"")
 	fmt.Println("  sudo nannyagent    # Interactive mode")
 	fmt.Println()
-	fmt.Printf("Documentation: https://github.com/harshavmb/nannyagent\n")
+	fmt.Printf("Documentation: https://nannyai.dev/documentation\n")
 	os.Exit(0)
 }
 
@@ -165,7 +165,7 @@ func checkExistingAgentInstance() error {
 
 // runRegisterCommand handles agent registration
 func runRegisterCommand() {
-	logging.Info("=== NannyAgent Registration ===")
+	logging.Info("Starting NannyAgent registration")
 
 	// Check if agent is already registered on this machine
 	if err := checkExistingAgentInstance(); err != nil {
