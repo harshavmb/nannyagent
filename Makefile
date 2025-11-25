@@ -1,82 +1,69 @@
-.PHONY: build run clean test install build-prod build-release install-system fmt lint help
+.PHONY: build run clean test install snapshot release help
 
-VERSION := 0.0.1
-BUILD_DIR := ./build
+VERSION := $(shell cat VERSION)
 BINARY_NAME := nannyagent
 
-# Build the application
 build:
-	go build -o $(BINARY_NAME) .
+	go build -ldflags "-X main.Version=$(VERSION)" -o $(BINARY_NAME) .
 
-# Run the application
 run: build
 	./$(BINARY_NAME)
 
-# Clean build artifacts
 clean:
 	rm -f $(BINARY_NAME)
-	rm -rf $(BUILD_DIR)
+	rm -rf dist/
 
-# Run tests
 test:
-	go test ./...
+	go test -v ./...
 
-# Install dependencies
 install:
 	go mod tidy
 	go mod download
 
-# Build for production with optimizations (current architecture)
-build-prod:
-	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo \
-		-ldflags '-w -s -X main.Version=$(VERSION)' \
-		-o $(BINARY_NAME) .
+snapshot:
+	goreleaser build --snapshot --clean
 
-# Build release binaries for both architectures
-build-release: clean
-	@echo "Building release binaries for version $(VERSION)..."
-	@mkdir -p $(BUILD_DIR)
-	@echo "Building for linux/amd64..."
-	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -installsuffix cgo \
-		-ldflags '-w -s -X main.Version=$(VERSION)' \
-		-o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 .
-	@echo "Building for linux/arm64..."
-	@CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -a -installsuffix cgo \
-		-ldflags '-w -s -X main.Version=$(VERSION)' \
-		-o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 .
-	@echo "Generating checksums..."
-	@cd $(BUILD_DIR) && sha256sum $(BINARY_NAME)-linux-amd64 > $(BINARY_NAME)-linux-amd64.sha256
-	@cd $(BUILD_DIR) && sha256sum $(BINARY_NAME)-linux-arm64 > $(BINARY_NAME)-linux-arm64.sha256
-	@echo "Build complete! Artifacts in $(BUILD_DIR)/"
-	@ls -lh $(BUILD_DIR)/
+snapshot-single:
+	goreleaser build --snapshot --clean --single-target
 
-# Install system-wide (requires sudo)
-install-system: build-prod
+release:
+	goreleaser release --clean
+
+check:
+	goreleaser check
+
+install-system: build
 	sudo cp $(BINARY_NAME) /usr/local/bin/
 	sudo chmod +x /usr/local/bin/$(BINARY_NAME)
+	sudo mkdir -p /etc/nannyagent
+	sudo bash -c 'echo "SUPABASE_PROJECT_URL=https://<supabase-project>.supabase.co" > /etc/nannyagent/config.env'
+	sudo chmod 600 /etc/nannyagent/config.env
+	sudo cp nannyagent.service /etc/systemd/system/
+	sudo systemctl daemon-reload
+	@echo "Service installed. Run: sudo systemctl start nannyagent"
 
-# Format code
 fmt:
 	go fmt ./...
 
-# Run linter (if golangci-lint is installed)
 lint:
 	golangci-lint run
 
-# Show help
 help:
-	@echo "NannyAgent Makefile - Available commands:"
+	@echo "NannyAgent Build System (GoReleaser)"
 	@echo ""
-	@echo "  make build           - Build the application for current platform"
-	@echo "  make run             - Build and run the application"
-	@echo "  make clean           - Clean build artifacts"
-	@echo "  make test            - Run tests"
-	@echo "  make install         - Install Go dependencies"
-	@echo "  make build-prod      - Build for production (optimized, current arch)"
-	@echo "  make build-release   - Build release binaries for amd64 and arm64"
-	@echo "  make install-system  - Install system-wide (requires sudo)"
-	@echo "  make fmt             - Format code"
-	@echo "  make lint            - Run linter"
-	@echo "  make help            - Show this help"
+	@echo "Development:"
+	@echo "  make build              - Build for current platform"
+	@echo "  make run                - Build and run"
+	@echo "  make test               - Run tests"
+	@echo "  make clean              - Clean artifacts"
+	@echo ""
+	@echo "GoReleaser:"
+	@echo "  make snapshot           - Build all platforms (snapshot)"
+	@echo "  make snapshot-single    - Build current platform only"
+	@echo "  make release            - Create GitHub release"
+	@echo "  make check              - Validate goreleaser config"
+	@echo ""
+	@echo "Deployment:"
+	@echo "  make install-system     - Install as systemd service"
 	@echo ""
 	@echo "Version: $(VERSION)"

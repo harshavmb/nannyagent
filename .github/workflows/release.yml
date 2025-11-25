@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+
+    - name: Get version from VERSION file
+      id: get_version
+      run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+    - name: Validate tag matches VERSION file
+      run: |
+        TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+        FILE_VERSION="${{ steps.get_version.outputs.VERSION }}"
+        if [ "$TAG_VERSION" != "$FILE_VERSION" ]; then
+          echo "Error: Tag version (v$TAG_VERSION) does not match VERSION file ($FILE_VERSION)"
+          exit 1
+        fi
+
+    - name: Run GoReleaser
+      uses: goreleaser/goreleaser-action@v6
+      with:
+        distribution: goreleaser
+        version: '~> v2'
+        args: release --clean
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
