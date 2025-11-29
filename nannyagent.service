@@ -1,0 +1,41 @@
+[Unit]
+Description=NannyAgent - AI-Powered Linux Diagnostic Agent
+Documentation=https://nannyai.dev/documentation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nannyagent --daemon
+Restart=always
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nannyagent
+
+# Security hardening
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/nannyagent
+ReadWritePaths=-/etc/nannyagent
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Environment
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="SUPABASE_PROJECT_URL=https://api.nannyagent.dev"
+EnvironmentFile=-/etc/nannyagent/config.env
+
+# Working directory
+WorkingDirectory=/var/lib/nannyagent
+
+# Run as root (required for eBPF)
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
