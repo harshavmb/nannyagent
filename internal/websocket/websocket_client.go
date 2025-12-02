@@ -1,9 +1,11 @@
 package websocket
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -125,12 +127,18 @@ func (w *WebSocketClient) Start() error {
 	// Start database polling for pending investigations
 	go w.pollPendingInvestigations()
 
+	// Start database polling for patch executions
+	go w.pollPatchExecutions()
+
 	// WebSocket client started
 	return nil
 }
 
 // Stop closes the WebSocket connection
 func (c *WebSocketClient) Stop() {
+	// Update database that we're disconnecting
+	c.updateConnectionStatus(false)
+
 	c.cancel()
 	if c.conn != nil {
 		c.conn.Close()
@@ -186,12 +194,19 @@ func (c *WebSocketClient) connect() error {
 
 	c.conn = conn
 	// WebSocket client connected
+
+	// Update database that we're connected
+	go c.updateConnectionStatus(true)
+
 	return nil
 }
 
 // handleMessages processes incoming WebSocket messages
 func (c *WebSocketClient) handleMessages() {
 	defer func() {
+		// Update database that we're disconnected
+		c.updateConnectionStatus(false)
+
 		if c.conn != nil {
 			// Closing WebSocket connection
 			c.conn.Close()
@@ -838,4 +853,372 @@ func (c *WebSocketClient) attemptReconnection() {
 	}
 
 	logging.Error("Failed to reconnect after %d attempts, giving up", len(backoffDurations))
+}
+
+// updateConnectionStatus updates the agent's websocket connection status in the database
+func (w *WebSocketClient) updateConnectionStatus(connected bool) {
+	url := fmt.Sprintf("%s/functions/v1/agent-database-proxy/connection-status", w.supabaseURL)
+
+	payload := map[string]interface{}{
+		"connected": connected,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonData))
+	if err != nil {
+		return
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", w.token))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+}
+
+// pollPatchExecutions polls the database for pending patch executions
+func (w *WebSocketClient) pollPatchExecutions() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	// Create a separate ticker for heartbeat (every 30 seconds)
+	heartbeatTicker := time.NewTicker(30 * time.Second)
+	defer heartbeatTicker.Stop()
+
+	for {
+		select {
+		case <-w.ctx.Done():
+			return
+		case <-ticker.C:
+			w.checkForPendingPatchExecutions()
+		case <-heartbeatTicker.C:
+			// Send heartbeat to refresh connection timestamp
+			go w.updateConnectionStatus(true)
+		}
+	}
+}
+
+// checkForPendingPatchExecutions checks the database for new pending patch executions
+func (w *WebSocketClient) checkForPendingPatchExecutions() {
+	url := fmt.Sprintf("%s/functions/v1/agent-database-proxy/patch-executions", w.supabaseURL)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", w.token))
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return
+	}
+
+	var executions []types.PatchExecution
+	err = json.NewDecoder(resp.Body).Decode(&executions)
+	if err != nil {
+		return
+	}
+
+	for _, execution := range executions {
+		go w.handlePendingPatchExecution(execution)
+	}
+}
+
+// handlePendingPatchExecution handles a pending patch execution
+func (w *WebSocketClient) handlePendingPatchExecution(execution types.PatchExecution) {
+	scriptID := ""
+	if execution.ScriptID != nil {
+		scriptID = *execution.ScriptID
+	}
+	logging.Info("Processing patch execution %s (type: %s, script_id: %s)", execution.ID, execution.ExecutionType, scriptID)
+
+	// Get script storage path from database via proxy
+	scriptInfoURL := fmt.Sprintf("%s/functions/v1/agent-database-proxy/patch-scripts/%s", w.supabaseURL, scriptID)
+	req, err := http.NewRequest("GET", scriptInfoURL, nil)
+	if err != nil {
+		logging.Error("Failed to create script info request: %v", err)
+		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to get script info: %v", err), "", "")
+		return
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", w.token))
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	scriptInfoResp, err := client.Do(req)
+	if err != nil {
+		logging.Error("Failed to fetch script info: %v", err)
+		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to fetch script info: %v", err), "", "")
+		return
+	}
+	defer scriptInfoResp.Body.Close()
+
+	if scriptInfoResp.StatusCode != 200 {
+		logging.Error("Script info request returned status %d", scriptInfoResp.StatusCode)
+		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Script info fetch failed with status %d", scriptInfoResp.StatusCode), "", "")
+		return
+	}
+
+	var scriptInfo struct {
+		ScriptStoragePath string `json:"script_storage_path"`
+	}
+	if err := json.NewDecoder(scriptInfoResp.Body).Decode(&scriptInfo); err != nil {
+		logging.Error("Failed to decode script info: %v", err)
+		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to decode script info: %v", err), "", "")
+		return
+	}
+
+	// Download the script from storage
+	scriptURL := fmt.Sprintf("%s/storage/v1/object/public/patch-scripts/%s", w.supabaseURL, scriptInfo.ScriptStoragePath)
+	scriptResp, err := http.Get(scriptURL)
+	if err != nil {
+		logging.Error("Failed to download script: %v", err)
+		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to download script: %v", err), "", "")
+		return
+	}
+	defer scriptResp.Body.Close()
+
+	if scriptResp.StatusCode != 200 {
+		logging.Error("Script download returned status %d", scriptResp.StatusCode)
+		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Script download failed with status %d", scriptResp.StatusCode), "", "")
+		return
+	}
+
+	scriptContent, err := io.ReadAll(scriptResp.Body)
+	if err != nil {
+		logging.Error("Failed to read script content: %v", err)
+		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to read script: %v", err), "", "")
+		return
+	}
+
+	// Write script to temporary file
+	tmpFile, err := os.CreateTemp("", "patch-script-*.sh")
+	if err != nil {
+		logging.Error("Failed to create temp file: %v", err)
+		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to create temp file: %v", err), "", "")
+		return
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.Write(scriptContent); err != nil {
+		logging.Error("Failed to write script content: %v", err)
+		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to write script: %v", err), "", "")
+		tmpFile.Close()
+		return
+	}
+
+	if err := tmpFile.Chmod(0755); err != nil {
+		logging.Error("Failed to make script executable: %v", err)
+		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to chmod script: %v", err), "", "")
+		tmpFile.Close()
+		return
+	}
+	tmpFile.Close()
+
+	// Update status to running
+	w.updatePatchExecutionStatus(execution.ID, "running", 0, "", "", "")
+
+	// Execute the script with the provided command
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	if execution.Command != "" {
+		cmd = exec.CommandContext(ctx, "bash", "-c", fmt.Sprintf("%s %s", tmpFile.Name(), execution.Command))
+	} else {
+		cmd = exec.CommandContext(ctx, tmpFile.Name())
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err = cmd.Run()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = 1
+		}
+	}
+
+	// Parse JSON from stdout and save to separate file
+	jsonData := w.parseJSONFromOutput(stdout.String())
+
+	// Upload stdout, stderr, and JSON output to storage
+	outputPath := fmt.Sprintf("%s/%s-stdout.txt", w.agentID, execution.ID)
+	errorPath := fmt.Sprintf("%s/%s-stderr.txt", w.agentID, execution.ID)
+	jsonPath := fmt.Sprintf("%s/%s-output.json", w.agentID, execution.ID)
+
+	w.uploadOutputToStorage(outputPath, stdout.Bytes())
+	w.uploadOutputToStorage(errorPath, stderr.Bytes())
+
+	// Upload JSON output to storage if present
+	if jsonData != "" {
+		w.uploadOutputToStorage(jsonPath, []byte(jsonData))
+	}
+
+	// Determine final status
+	status := "completed"
+	if exitCode != 0 {
+		status = "failed"
+	}
+
+	// Update execution status (no JSON in database, only storage paths)
+	w.updatePatchExecutionStatus(execution.ID, status, exitCode, "", outputPath, errorPath)
+
+	// Perform reboot if requested and execution was successful
+	if execution.ShouldReboot && exitCode == 0 && execution.ExecutionType == "apply" {
+		go w.performReboot(execution.ID)
+	}
+
+	logging.Info("Patch execution %s completed with exit code %d", execution.ID, exitCode)
+}
+
+// parseJSONFromOutput extracts JSON data from script output
+func (w *WebSocketClient) parseJSONFromOutput(output string) string {
+	lines := strings.Split(output, "\n")
+	var jsonLines []string
+	inJSON := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "{" || trimmed == "[" {
+			inJSON = true
+			jsonLines = []string{trimmed}
+		} else if inJSON {
+			jsonLines = append(jsonLines, trimmed)
+			if trimmed == "}" || trimmed == "]" {
+				// Try to parse the JSON
+				jsonStr := strings.Join(jsonLines, "\n")
+				var testJSON interface{}
+				if json.Unmarshal([]byte(jsonStr), &testJSON) == nil {
+					return jsonStr
+				}
+				inJSON = false
+				jsonLines = nil
+			}
+		}
+	}
+
+	return ""
+}
+
+// uploadOutputToStorage uploads execution output to storage bucket
+func (w *WebSocketClient) uploadOutputToStorage(path string, content []byte) {
+	url := fmt.Sprintf("%s/storage/v1/object/patch-execution-outputs/%s", w.supabaseURL, path)
+
+	req, err := http.NewRequest("POST", url, bytes.NewReader(content))
+	if err != nil {
+		logging.Error("Failed to create upload request: %v", err)
+		return
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", w.token))
+	req.Header.Set("Content-Type", "text/plain")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		logging.Error("Failed to upload output: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		logging.Error("Upload failed with status %d: %s", resp.StatusCode, string(body))
+	}
+}
+
+// updatePatchExecutionStatus updates the status of a patch execution
+func (w *WebSocketClient) updatePatchExecutionStatus(executionID, status string, exitCode int, errorMessage, stdoutPath, stderrPath string) {
+	url := fmt.Sprintf("%s/functions/v1/agent-database-proxy/patch-executions/%s", w.supabaseURL, executionID)
+
+	payload := map[string]interface{}{
+		"status":    status,
+		"exit_code": exitCode,
+	}
+
+	if errorMessage != "" {
+		payload["error_message"] = errorMessage
+	}
+	if stdoutPath != "" {
+		payload["stdout_storage_path"] = stdoutPath
+	}
+	if stderrPath != "" {
+		payload["stderr_storage_path"] = stderrPath
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		logging.Error("Failed to marshal status update: %v", err)
+		return
+	}
+
+	req, err := http.NewRequest("PATCH", url, bytes.NewReader(jsonData))
+	if err != nil {
+		logging.Error("Failed to create status update request: %v", err)
+		return
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", w.token))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		logging.Error("Failed to update patch execution status: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		logging.Error("Status update failed with status %d: %s", resp.StatusCode, string(body))
+	}
+}
+
+// performReboot initiates a system reboot after a delay
+func (w *WebSocketClient) performReboot(executionID string) {
+	logging.Info("Reboot requested for execution %s, waiting 30 seconds...", executionID)
+
+	// Update execution with reboot timestamp
+	url := fmt.Sprintf("%s/functions/v1/agent-database-proxy/patch-executions/%s", w.supabaseURL, executionID)
+
+	payload := map[string]interface{}{
+		"rebooted_at": time.Now().UTC().Format(time.RFC3339),
+	}
+
+	jsonData, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("PATCH", url, bytes.NewReader(jsonData))
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", w.token))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	client.Do(req)
+
+	// Wait 30 seconds before rebooting
+	time.Sleep(30 * time.Second)
+
+	// Initiate reboot
+	cmd := exec.Command("sudo", "reboot")
+	if err := cmd.Start(); err != nil {
+		logging.Error("Failed to initiate reboot: %v", err)
+	}
 }

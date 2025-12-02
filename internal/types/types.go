@@ -278,6 +278,27 @@ type PendingInvestigation struct {
 	CreatedAt         time.Time              `json:"created_at"`
 }
 
+// PatchTask represents a patch management task
+type PatchTask struct {
+	ID        string    `json:"id"`
+	AgentID   string    `json:"agent_id"`
+	Command   string    `json:"command"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// PatchExecution represents a patch execution task from the database
+type PatchExecution struct {
+	ID            string    `json:"id"`
+	AgentID       string    `json:"agent_id"`
+	ScriptID      *string   `json:"script_id"`
+	ExecutionType string    `json:"execution_type"` // dry_run, apply, apply_with_reboot
+	Status        string    `json:"status"`         // pending, executing, completed, failed
+	Command       string    `json:"command"`
+	ShouldReboot  bool      `json:"should_reboot"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 // DiagnosticAgent interface for agent functionality needed by other packages
 type DiagnosticAgent interface {
 	DiagnoseIssue(issue string) error
