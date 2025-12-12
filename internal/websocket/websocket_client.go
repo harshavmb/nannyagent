@@ -1075,6 +1075,26 @@ func (w *WebSocketClient) downloadPatchScript(scriptID string) ([]byte, error) {
 	scriptStr := string(scriptContent)
 	if !strings.HasPrefix(scriptStr, "#!") {
 		logging.Warning("Script does not start with shebang (#!), may not execute correctly")
+	} else {
+		// Validate shebang against whitelist of allowed interpreters
+		lines := strings.Split(scriptStr, "\n")
+		shebang := lines[0]
+		allowedInterpreters := []string{
+			"#!/bin/bash",
+			"#!/bin/sh",
+			"#!/usr/bin/env bash",
+			"#!/usr/bin/env sh",
+		}
+		isValid := false
+		for _, allowed := range allowedInterpreters {
+			if strings.HasPrefix(shebang, allowed) {
+				isValid = true
+				break
+			}
+		}
+		if !isValid {
+			logging.Warning("Script uses non-standard interpreter: %s", shebang)
+		}
 	}
 
 	return scriptContent, nil
@@ -1114,9 +1134,14 @@ func (w *WebSocketClient) executeScript(scriptPath string, command string) ([]by
 
 	var cmd *exec.Cmd
 	if command != "" {
-		// Split command into arguments safely to avoid command injection
-		// Note: This uses simple space splitting. For more complex cases with quotes,
-		// consider using a proper shell parser or whitelist allowed arguments
+		// Split command into arguments to avoid command injection
+		// Note: This uses simple space splitting with strings.Fields() which does not
+		// handle quoted arguments, escaped spaces, or other shell metacharacters.
+		// For production use with complex arguments, consider:
+		// 1. Using a proper shell parser like github.com/google/shlex
+		// 2. Implementing argument validation/whitelisting
+		// 3. Restricting the command field to a predefined set of safe options
+		// Current implementation assumes command contains simple space-separated arguments
 		args := strings.Fields(command)
 		cmd = exec.CommandContext(ctx, scriptPath, args...)
 	} else {
