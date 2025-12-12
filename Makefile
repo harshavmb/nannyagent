@@ -33,8 +33,8 @@ check:
 	goreleaser check
 
 install-system: build
-	sudo cp $(BINARY_NAME) /usr/local/bin/
-	sudo chmod +x /usr/local/bin/$(BINARY_NAME)
+	sudo cp $(BINARY_NAME) /usr/sbin/
+	sudo chmod +x /usr/sbin/$(BINARY_NAME)
 	sudo mkdir -p /etc/nannyagent
 	sudo bash -c 'echo "SUPABASE_PROJECT_URL=https://<supabase-project>.supabase.co" > /etc/nannyagent/config.env'
 	sudo chmod 600 /etc/nannyagent/config.env
