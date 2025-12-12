@@ -173,9 +173,13 @@ func GetLevel() LogLevel {
 }
 
 // EnableSyslogOnly sets syslog-only mode globally for ALL logger instances
-func EnableSyslogOnly() {
+func EnableSyslogOnly() error {
+	if defaultLogger.syslogWriter == nil {
+		return fmt.Errorf("syslog writer not initialized")
+	}
 	globalSyslogOnly = true
 	defaultLogger.syslogOnly = true
+	return nil
 }
 
 // DisableSyslogOnly disables syslog-only mode globally for ALL logger instances

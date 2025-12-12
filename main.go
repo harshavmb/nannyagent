@@ -526,7 +526,10 @@ func main() {
 	// Check if running in daemon mode
 	if *daemonFlag {
 		// Switch to syslog-only logging first to avoid duplicates
-		logging.EnableSyslogOnly()
+		if err := logging.EnableSyslogOnly(); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to initialize syslog: %v\n", err)
+			os.Exit(1)
+		}
 
 		logging.Info("Running in daemon mode (no interactive session)")
 		logging.Info("Logs will be sent to syslog. View with: journalctl -u nannyagent -f")

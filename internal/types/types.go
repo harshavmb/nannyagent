@@ -293,10 +293,10 @@ type PatchExecution struct {
 	ID            string    `json:"id"`
 	AgentID       string    `json:"agent_id"`
 	ScriptID      *string   `json:"script_id"`
-	ExecutionType string    `json:"execution_type"` // dry_run, apply, apply_with_reboot
+	ExecutionType string    `json:"execution_type"` // Allowed values: "dry_run", "apply". If a reboot is required after applying, set ShouldReboot to true.
 	Status        string    `json:"status"`         // pending, executing, completed, failed
 	Command       string    `json:"command"`
-	ShouldReboot  bool      `json:"should_reboot"`
+	ShouldReboot  bool      `json:"should_reboot"`  // Indicates if a reboot should be performed after execution. Used in conjunction with ExecutionType="apply".
 	CreatedAt     time.Time `json:"created_at"`
 }
 
