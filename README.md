@@ -62,7 +62,7 @@ The installer will:
 - ✅ Install eBPF tools (bpftrace, bpfcc-tools)
 - ✅ Build the nannyagent binary
 - ✅ Test connectivity to Supabase
-- ✅ Install to `/usr/local/bin/nannyagent`
+- ✅ Install to `/usr/sbin/nannyagent`
 - ✅ Create configuration in `/etc/nannyagent/config.env`
 - ✅ Create secure data directory `/var/lib/nannyagent`
 
