@@ -1380,8 +1380,12 @@ func (w *WebSocketClient) performReboot(executionID string) {
 	time.Sleep(30 * time.Second)
 
 	// Initiate reboot
-	cmd := exec.Command("sudo", "reboot")
-	if err := cmd.Start(); err != nil {
-		logging.Error("Failed to initiate reboot: %v", err)
+	if os.Geteuid() != 0 {
+		logging.Error("Insufficient privileges to reboot: must be run as root")
+		return
+	}
+	cmd := exec.Command("systemctl", "reboot")
+	if err := cmd.Run(); err != nil {
+		logging.Error("Failed to execute reboot command: %v", err)
 	}
 }
