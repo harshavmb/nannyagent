@@ -96,7 +96,7 @@ func TestStartDeviceAuthorization(t *testing.T) {
 			ExpiresIn:       900,
 			Interval:        5,
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -129,7 +129,7 @@ func TestPollForToken_Success(t *testing.T) {
 		attempt++
 
 		var req types.TokenRequest
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 
 		// First two attempts: return pending
 		if attempt <= 2 {
@@ -137,7 +137,7 @@ func TestPollForToken_Success(t *testing.T) {
 				Error:            "authorization_pending",
 				ErrorDescription: "User has not completed authorization",
 			}
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
 
@@ -148,7 +148,7 @@ func TestPollForToken_Success(t *testing.T) {
 			TokenType:    "Bearer",
 			ExpiresIn:    3600,
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -174,7 +174,7 @@ func TestPollForToken_Success(t *testing.T) {
 func TestRefreshAccessToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req types.TokenRequest
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 
 		if req.GrantType != "refresh_token" {
 			t.Errorf("Expected grant_type 'refresh_token', got '%s'", req.GrantType)
@@ -190,7 +190,7 @@ func TestRefreshAccessToken(t *testing.T) {
 			ExpiresIn:    3600,
 		}
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

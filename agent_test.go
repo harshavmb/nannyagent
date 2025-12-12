@@ -106,9 +106,7 @@ func TestAgentInitialization_WithEnvironment(t *testing.T) {
 	}
 
 	// Restore
-	if originalSupabaseURL != "" {
-		// Would restore here
-	}
+	_ = originalSupabaseURL
 }
 
 func TestExecutor_Integration(t *testing.T) {

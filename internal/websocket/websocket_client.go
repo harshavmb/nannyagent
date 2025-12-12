@@ -141,7 +141,7 @@ func (c *WebSocketClient) Stop() {
 
 	c.cancel()
 	if c.conn != nil {
-		c.conn.Close()
+		_ = c.conn.Close()
 	}
 }
 
@@ -209,7 +209,7 @@ func (c *WebSocketClient) handleMessages() {
 
 		if c.conn != nil {
 			// Closing WebSocket connection
-			c.conn.Close()
+			_ = c.conn.Close()
 		}
 	}()
 
@@ -605,7 +605,7 @@ func (c *WebSocketClient) checkForPendingInvestigations() {
 		// Database request failed
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		return
@@ -812,7 +812,7 @@ func (c *WebSocketClient) updateInvestigationStatus(id, status string, results m
 	if err != nil {
 		return fmt.Errorf("failed to update investigation: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 && resp.StatusCode != 204 {
 		return fmt.Errorf("supabase update error: %d", resp.StatusCode)
@@ -891,7 +891,7 @@ func (w *WebSocketClient) updateConnectionStatus(connected bool) {
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 }
 
 // pollPatchExecutions polls the database for pending patch executions
@@ -933,7 +933,7 @@ func (w *WebSocketClient) checkForPendingPatchExecutions() {
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		return
@@ -975,7 +975,7 @@ func (w *WebSocketClient) handlePendingPatchExecution(execution types.PatchExecu
 		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to fetch script info: %v", err), "", "")
 		return
 	}
-	defer scriptInfoResp.Body.Close()
+	defer func() { _ = scriptInfoResp.Body.Close() }()
 
 	if scriptInfoResp.StatusCode != 200 {
 		logging.Error("Script info request returned status %d", scriptInfoResp.StatusCode)
@@ -1000,7 +1000,7 @@ func (w *WebSocketClient) handlePendingPatchExecution(execution types.PatchExecu
 		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to download script: %v", err), "", "")
 		return
 	}
-	defer scriptResp.Body.Close()
+	defer func() { _ = scriptResp.Body.Close() }()
 
 	if scriptResp.StatusCode != 200 {
 		logging.Error("Script download returned status %d", scriptResp.StatusCode)
@@ -1022,22 +1022,22 @@ func (w *WebSocketClient) handlePendingPatchExecution(execution types.PatchExecu
 		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to create temp file: %v", err), "", "")
 		return
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.Write(scriptContent); err != nil {
 		logging.Error("Failed to write script content: %v", err)
 		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to write script: %v", err), "", "")
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return
 	}
 
 	if err := tmpFile.Chmod(0755); err != nil {
 		logging.Error("Failed to make script executable: %v", err)
 		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to chmod script: %v", err), "", "")
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Update status to running
 	w.updatePatchExecutionStatus(execution.ID, "running", 0, "", "", "")
@@ -1148,7 +1148,7 @@ func (w *WebSocketClient) uploadOutputToStorage(path string, content []byte) {
 		logging.Error("Failed to upload output: %v", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
@@ -1196,7 +1196,7 @@ func (w *WebSocketClient) updatePatchExecutionStatus(executionID, status string,
 		logging.Error("Failed to update patch execution status: %v", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
@@ -1221,7 +1221,7 @@ func (w *WebSocketClient) performReboot(executionID string) {
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	client.Do(req)
+	_, _ = client.Do(req)
 
 	// Wait 30 seconds before rebooting
 	time.Sleep(30 * time.Second)
