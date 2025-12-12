@@ -971,9 +971,14 @@ func (w *WebSocketClient) checkForPendingPatchExecutions() {
 	for _, execution := range executions {
 		// Use semaphore to limit concurrent patch executions
 		go func(exec types.PatchExecution) {
-			w.patchSemaphore <- struct{}{}        // Acquire semaphore
-			defer func() { <-w.patchSemaphore }() // Release semaphore
-			w.handlePendingPatchExecution(exec)
+			select {
+			case w.patchSemaphore <- struct{}{}: // Acquire semaphore
+				defer func() { <-w.patchSemaphore }() // Release semaphore
+				w.handlePendingPatchExecution(exec)
+			case <-w.ctx.Done():
+				// Context cancelled before acquiring semaphore; do not proceed
+				return
+			}
 		}(execution)
 	}
 }
