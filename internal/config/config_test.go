@@ -71,15 +71,15 @@ DEBUG=true
 	_ = os.Chdir(tmpDir)
 
 	// Set environment variables by loading the file
-	os.Setenv("SUPABASE_PROJECT_URL", "https://env.supabase.co")
-	os.Setenv("TOKEN_PATH", "/tmp/env_token.json")
-	os.Setenv("NANNYAI_PORTAL_URL", "https://env.nannyai.dev")
-	os.Setenv("DEBUG", "true")
+	_ = os.Setenv("SUPABASE_PROJECT_URL", "https://env.supabase.co")
+	_ = os.Setenv("TOKEN_PATH", "/tmp/env_token.json")
+	_ = os.Setenv("NANNYAI_PORTAL_URL", "https://env.nannyai.dev")
+	_ = os.Setenv("DEBUG", "true")
 	defer func() {
-		os.Unsetenv("SUPABASE_PROJECT_URL")
-		os.Unsetenv("TOKEN_PATH")
-		os.Unsetenv("NANNYAI_PORTAL_URL")
-		os.Unsetenv("DEBUG")
+		_ = os.Unsetenv("SUPABASE_PROJECT_URL")
+		_ = os.Unsetenv("TOKEN_PATH")
+		_ = os.Unsetenv("NANNYAI_PORTAL_URL")
+		_ = os.Unsetenv("DEBUG")
 	}()
 
 	// Create a minimal config
@@ -205,8 +205,8 @@ portal_url: https://yaml.nannyai.dev
 	}
 
 	// Set environment variable that should override
-	os.Setenv("SUPABASE_PROJECT_URL", "https://env.supabase.co")
-	defer os.Unsetenv("SUPABASE_PROJECT_URL")
+	_ = os.Setenv("SUPABASE_PROJECT_URL", "https://env.supabase.co")
+	defer func() { _ = os.Unsetenv("SUPABASE_PROJECT_URL") }()
 
 	// Load YAML first
 	config := DefaultConfig

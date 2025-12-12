@@ -150,14 +150,33 @@ func (c *Collector) getLocation() string {
 }
 
 // getFilesystemInfo returns information about mounted filesystems
+// Only includes important persistent filesystems (whitelist approach)
 func (c *Collector) getFilesystemInfo() []types.FilesystemInfo {
 	partitions, err := disk.Partitions(false)
 	if err != nil {
 		return []types.FilesystemInfo{}
 	}
 
+	// Whitelist of important filesystem types
+	allowedFsTypes := map[string]bool{
+		"ext2":  true,
+		"ext3":  true,
+		"ext4":  true,
+		"xfs":   true,
+		"btrfs": true,
+		"zfs":   true,
+		"ntfs":  true,
+		"vfat":  true,
+		"exfat": true,
+	}
+
 	var filesystems []types.FilesystemInfo
 	for _, partition := range partitions {
+		// Only include whitelisted filesystem types
+		if !allowedFsTypes[partition.Fstype] {
+			continue
+		}
+
 		usage, err := disk.Usage(partition.Mountpoint)
 		if err != nil {
 			continue
@@ -178,30 +197,55 @@ func (c *Collector) getFilesystemInfo() []types.FilesystemInfo {
 }
 
 // getBlockDevices returns information about block devices
+// Includes physical and virtual block devices (whitelist approach)
 func (c *Collector) getBlockDevices() []types.BlockDevice {
 	partitions, err := disk.Partitions(true)
 	if err != nil {
 		return []types.BlockDevice{}
 	}
 
+	// Whitelist of important device prefixes (physical/virtual disks)
+	allowedDevicePrefixes := []string{
+		"/dev/sd",     // SCSI/SATA disks
+		"/dev/hd",     // IDE disks
+		"/dev/vd",     // Virtual disks (KVM/QEMU)
+		"/dev/xvd",    // Xen virtual disks
+		"/dev/nvme",   // NVMe disks
+		"/dev/mmcblk", // SD/MMC cards
+	}
+
 	var devices []types.BlockDevice
 	deviceMap := make(map[string]bool)
 
 	for _, partition := range partitions {
-		// Only include actual block devices
-		if strings.HasPrefix(partition.Device, "/dev/") {
-			deviceName := partition.Device
-			if !deviceMap[deviceName] {
-				deviceMap[deviceName] = true
+		if !strings.HasPrefix(partition.Device, "/dev/") {
+			continue
+		}
 
-				device := types.BlockDevice{
-					Name:         deviceName,
-					Model:        "unknown",
-					Size:         0,
-					SerialNumber: "unknown",
-				}
-				devices = append(devices, device)
+		// Check if device matches any allowed prefix
+		isAllowed := false
+		for _, prefix := range allowedDevicePrefixes {
+			if strings.HasPrefix(partition.Device, prefix) {
+				isAllowed = true
+				break
 			}
+		}
+
+		if !isAllowed {
+			continue
+		}
+
+		deviceName := partition.Device
+		if !deviceMap[deviceName] {
+			deviceMap[deviceName] = true
+
+			device := types.BlockDevice{
+				Name:         deviceName,
+				Model:        "unknown",
+				Size:         0,
+				SerialNumber: "unknown",
+			}
+			devices = append(devices, device)
 		}
 	}
 
@@ -220,6 +264,7 @@ func (c *Collector) SendMetrics(agentAuthURL, accessToken, agentID string, metri
 func (c *Collector) CreateMetricsRequest(agentID string, systemMetrics *types.SystemMetrics) *types.MetricsRequest {
 	return &types.MetricsRequest{
 		AgentID:           agentID,
+		Hostname:          systemMetrics.Hostname,
 		CPUUsage:          systemMetrics.CPUUsage,
 		MemoryUsage:       systemMetrics.MemoryUsage,
 		DiskUsage:         systemMetrics.DiskUsage,
@@ -274,6 +319,7 @@ func (c *Collector) safeCastUint64Value(val uint64) uint64 {
 func (c *Collector) sendMetricsRequest(agentAuthURL, accessToken string, metricsReq *types.MetricsRequest) error {
 	// Wrap metrics in the expected payload structure
 	payload := map[string]interface{}{
+		"agent_id":  metricsReq.AgentID,
 		"metrics":   metricsReq,
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
 	}
@@ -298,7 +344,7 @@ func (c *Collector) sendMetricsRequest(agentAuthURL, accessToken string, metrics
 	if err != nil {
 		return fmt.Errorf("failed to send metrics: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read response
 	body, err := io.ReadAll(resp.Body)
