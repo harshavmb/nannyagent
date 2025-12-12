@@ -1079,27 +1079,28 @@ func (w *WebSocketClient) downloadPatchScript(scriptID string) ([]byte, error) {
 	}
 	scriptStr := string(scriptContent)
 	if !strings.HasPrefix(scriptStr, "#!") {
-		logging.Warning("Script does not start with shebang (#!), may not execute correctly")
-	} else {
-		// Validate shebang against whitelist of allowed interpreters
-		lines := strings.Split(scriptStr, "\n")
-		shebang := lines[0]
-		allowedInterpreters := []string{
-			"#!/bin/bash",
-			"#!/bin/sh",
-			"#!/usr/bin/env bash",
-			"#!/usr/bin/env sh",
+		logging.Error("Script does not start with shebang (#!), refusing to execute")
+		return nil, fmt.Errorf("script does not start with shebang (#!)")
+	}
+	// Validate shebang against whitelist of allowed interpreters
+	lines := strings.Split(scriptStr, "\n")
+	shebang := lines[0]
+	allowedInterpreters := []string{
+		"#!/bin/bash",
+		"#!/bin/sh",
+		"#!/usr/bin/env bash",
+		"#!/usr/bin/env sh",
+	}
+	isValid := false
+	for _, allowed := range allowedInterpreters {
+		if strings.HasPrefix(shebang, allowed) {
+			isValid = true
+			break
 		}
-		isValid := false
-		for _, allowed := range allowedInterpreters {
-			if strings.HasPrefix(shebang, allowed) {
-				isValid = true
-				break
-			}
-		}
-		if !isValid {
-			logging.Warning("Script uses non-standard interpreter: %s", shebang)
-		}
+	}
+	if !isValid {
+		logging.Error("Script uses non-standard interpreter: %s, refusing to execute", shebang)
+		return nil, fmt.Errorf("script uses non-standard interpreter: %s", shebang)
 	}
 
 	return scriptContent, nil
