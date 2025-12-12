@@ -170,7 +170,7 @@ install_dependencies() {
         PKG_MANAGER="yum"
         log_info "Detected CentOS/RHEL 7 system"
         
-        log_info "Installing, bpftrace, and unzip..."
+        log_info "Installing bpftrace and unzip..."
         yum install -y -q bpftrace unzip 2>&1 || {
             log_error "Failed to install eBPF tools"
             exit 7
@@ -178,7 +178,7 @@ install_dependencies() {
         
     else
         log_error "Unsupported package manager"
-        log_error "Please install 'zip' and 'bpftrace' manually"
+        log_error "Please install 'unzip' and 'bpftrace' manually"
         exit 7
     fi
     

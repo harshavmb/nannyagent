@@ -197,7 +197,7 @@ func (c *Collector) getFilesystemInfo() []types.FilesystemInfo {
 }
 
 // getBlockDevices returns information about block devices
-// Only includes physical block devices (whitelist approach)
+// Includes physical and virtual block devices (whitelist approach)
 func (c *Collector) getBlockDevices() []types.BlockDevice {
 	partitions, err := disk.Partitions(true)
 	if err != nil {
