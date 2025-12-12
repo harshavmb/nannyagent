@@ -356,7 +356,7 @@ func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatComp
 	if lastErr != nil {
 		return nil, fmt.Errorf("failed to send request after 5 attempts: %w", lastErr)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check status code
 	if resp.StatusCode != 200 {
@@ -390,9 +390,7 @@ func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatComp
 							if err != nil {
 								return nil, fmt.Errorf("failed to send request after token refresh: %w", err)
 							}
-							defer resp.Body.Close()
-
-							// If still not 200, fall through to error below
+							defer func() { _ = resp.Body.Close() }() // If still not 200, fall through to error below
 							if resp.StatusCode == 200 {
 								// Success! Continue with normal response processing
 								goto parseResponse

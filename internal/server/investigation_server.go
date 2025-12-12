@@ -435,7 +435,7 @@ func (s *InvestigationServer) checkForPendingInvestigations() {
 	if err != nil {
 		return // Silent fail for polling
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		return // Silent fail for polling
@@ -519,7 +519,7 @@ func (s *InvestigationServer) updateInvestigationStatus(id, status string, resul
 	if err != nil {
 		return fmt.Errorf("failed to update investigation: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 && resp.StatusCode != 204 {
 		return fmt.Errorf("supabase update error: %d", resp.StatusCode)

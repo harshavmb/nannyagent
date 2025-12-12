@@ -455,7 +455,7 @@ func (tm *BCCTraceManager) monitorTrace(traceID string, stdout io.ReadCloser, st
 			}
 			tm.tracesLock.Unlock()
 		}
-		stdout.Close()
+		_ = stdout.Close()
 	}()
 
 	// Start reading stderr in a goroutine to capture errors
@@ -470,7 +470,7 @@ func (tm *BCCTraceManager) monitorTrace(traceID string, stdout io.ReadCloser, st
 				logging.Warning("Trace %s bpftrace error: %s", traceID, line)
 			}
 		}
-		stderr.Close()
+		_ = stderr.Close()
 	}()
 
 	// Wait for the process to complete

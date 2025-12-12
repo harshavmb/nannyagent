@@ -87,7 +87,7 @@ func (am *AuthManager) StartDeviceAuthorization() (*types.DeviceAuthResponse, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to start device authorization: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -140,7 +140,7 @@ func (am *AuthManager) PollForToken(deviceCode string) (*types.TokenResponse, er
 		}
 
 		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to read token response: %w", err)
@@ -195,7 +195,7 @@ func (am *AuthManager) RefreshAccessToken(refreshToken string) (*types.TokenResp
 	if err != nil {
 		return nil, fmt.Errorf("failed to refresh token: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
