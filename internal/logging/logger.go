@@ -41,6 +41,7 @@ type Logger struct {
 }
 
 var defaultLogger *Logger
+var globalSyslogOnly bool // Global flag that affects all logger instances
 
 func init() {
 	defaultLogger = NewLogger()
@@ -108,7 +109,8 @@ func (l *Logger) logMessage(level LogLevel, format string, args ...interface{}) 
 	}
 
 	// Print to stdout/stderr (unless syslog-only mode)
-	if !l.syslogOnly {
+	// Check both instance and global flags
+	if !l.syslogOnly && !globalSyslogOnly {
 		log.Printf("%s %s", prefix, msg)
 	}
 }
@@ -141,7 +143,7 @@ func (l *Logger) GetLevel() LogLevel {
 
 func (l *Logger) Close() {
 	if l.syslogWriter != nil {
-		l.syslogWriter.Close()
+		_ = l.syslogWriter.Close()
 	}
 }
 
@@ -172,12 +174,18 @@ func GetLevel() LogLevel {
 	return defaultLogger.GetLevel()
 }
 
-// EnableSyslogOnly sets syslog-only mode (no stdout/stderr)
-func EnableSyslogOnly() {
+// EnableSyslogOnly sets syslog-only mode globally for ALL logger instances
+func EnableSyslogOnly() error {
+	if defaultLogger.syslogWriter == nil {
+		return fmt.Errorf("syslog writer not initialized")
+	}
+	globalSyslogOnly = true
 	defaultLogger.syslogOnly = true
+	return nil
 }
 
-// DisableSyslogOnly disables syslog-only mode (logs to both syslog and stdout/stderr)
+// DisableSyslogOnly disables syslog-only mode globally for ALL logger instances
 func DisableSyslogOnly() {
+	globalSyslogOnly = false
 	defaultLogger.syslogOnly = false
 }
