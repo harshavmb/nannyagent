@@ -3,7 +3,7 @@ set -e
 
 # NannyAgent Installer Script
 # Description: Installs NannyAgent Linux diagnostic tool with eBPF capabilities and systemd support
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="/usr/sbin"
 CONFIG_DIR="/etc/nannyagent"
 DATA_DIR="/var/lib/nannyagent"
 BINARY_NAME="nannyagent"
@@ -149,9 +149,9 @@ install_dependencies() {
             exit 7
         }
         
-        # Install bpfcc-tools, bpftrace, and unzip
-        log_info "Installing bpfcc-tools, bpftrace, and unzip..."
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bpfcc-tools bpftrace linux-headers-$(uname -r) unzip 2>&1 || {
+        # Install bpftrace, and unzip
+        log_info "Installing bpftrace, and unzip..."
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bpftrace unzip 2>&1 || {
             log_error "Failed to install eBPF tools"
             exit 7
         }
@@ -160,8 +160,8 @@ install_dependencies() {
         PKG_MANAGER="dnf"
         log_info "Detected Fedora/RHEL 8+ system"
         
-        log_info "Installing bcc-tools, bpftrace, and unzip..."
-        dnf install -y -q bcc-tools bpftrace kernel-devel unzip 2>&1 || {
+        log_info "Installing bpftrace, and unzip..."
+        dnf install -y -q bpftrace unzip 2>&1 || {
             log_error "Failed to install eBPF tools"
             exit 7
         }
@@ -170,15 +170,15 @@ install_dependencies() {
         PKG_MANAGER="yum"
         log_info "Detected CentOS/RHEL 7 system"
         
-        log_info "Installing bcc-tools, bpftrace, and unzip..."
-        yum install -y -q bcc-tools bpftrace kernel-devel unzip 2>&1 || {
+        log_info "Installing, bpftrace, and unzip..."
+        yum install -y -q bpftrace unzip 2>&1 || {
             log_error "Failed to install eBPF tools"
             exit 7
         }
         
     else
         log_error "Unsupported package manager"
-        log_error "Please install 'bpfcc-tools' and 'bpftrace' manually"
+        log_error "Please install 'zip' and 'bpftrace' manually"
         exit 7
     fi
     
@@ -186,19 +186,7 @@ install_dependencies() {
     if ! command -v bpftrace &> /dev/null; then
         log_error "bpftrace installation failed or not in PATH"
         exit 7
-    fi
-    
-    # Check for BCC tools (RedHat systems may have them in /usr/share/bcc/tools/)
-    if [ -d "/usr/share/bcc/tools" ]; then
-        log_info "BCC tools found at /usr/share/bcc/tools/"
-        # Add to PATH if not already there
-        if [[ ":$PATH:" != *":/usr/share/bcc/tools:"* ]]; then
-            export PATH="/usr/share/bcc/tools:$PATH"
-            log_info "Added /usr/share/bcc/tools to PATH"
-        fi
-    fi
-    
-    log_success "eBPF tools installed successfully"
+    fi    
 }
 
 # Download pre-built binary from GitHub releases
@@ -544,7 +532,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/nannyagent --daemon
+ExecStart=/usr/sbin/nannyagent --daemon
 Restart=always
 RestartSec=10s
 

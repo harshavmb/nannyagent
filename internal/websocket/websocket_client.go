@@ -303,8 +303,6 @@ func (c *WebSocketClient) handleInvestigationTask(data interface{}) {
 		return
 	}
 
-	// Processing investigation task
-
 	// Execute diagnostic commands
 	results, err := c.executeDiagnosticCommands(task.DiagnosticPayload)
 
@@ -319,7 +317,6 @@ func (c *WebSocketClient) handleInvestigationTask(data interface{}) {
 		logging.Error("Task execution failed: %v", err)
 	} else {
 		taskResult.CommandResults = results
-		// Task executed successfully
 	}
 
 	// Send result back
@@ -337,26 +334,39 @@ func (c *WebSocketClient) executeDiagnosticCommands(diagnosticPayload map[string
 	// Extract commands from diagnostic payload
 	commands, ok := diagnosticPayload["commands"].([]interface{})
 	if !ok {
-		return nil, fmt.Errorf("no commands found in diagnostic payload")
+		// Don't return error, just proceed with empty commands
+		commands = []interface{}{}
 	}
 
 	var commandResults []map[string]interface{}
 
-	for _, cmd := range commands {
-		cmdMap, ok := cmd.(map[string]interface{})
-		if !ok {
+	for i, cmd := range commands {
+		var id, command, description string
+
+		// Handle both string commands and object commands
+		if cmdStr, ok := cmd.(string); ok {
+			// Simple string command format: ["ps aux", "netstat -tulpn"]
+			id = fmt.Sprintf("cmd_%d", i+1)
+			command = cmdStr
+			description = fmt.Sprintf("Command: %s", cmdStr)
+		} else if cmdMap, ok := cmd.(map[string]interface{}); ok {
+			// Object format: [{"id": "...", "command": "...", "description": "..."}]
+			id, _ = cmdMap["id"].(string)
+			command, _ = cmdMap["command"].(string)
+			description, _ = cmdMap["description"].(string)
+
+			// If id is missing, generate one
+			if id == "" {
+				id = fmt.Sprintf("cmd_%d", i+1)
+			}
+		} else {
+			// Unknown format, skip
 			continue
 		}
-
-		id, _ := cmdMap["id"].(string)
-		command, _ := cmdMap["command"].(string)
-		description, _ := cmdMap["description"].(string)
 
 		if command == "" {
 			continue
 		}
-
-		// Executing command
 
 		// Execute the command
 		output, exitCode, err := c.executeCommand(command)
@@ -372,7 +382,6 @@ func (c *WebSocketClient) executeDiagnosticCommands(diagnosticPayload map[string
 
 		if err != nil {
 			result["error"] = err.Error()
-			logging.Warning("Command [%s] failed: %v (exit code: %d)", id, err, exitCode)
 		}
 
 		commandResults = append(commandResults, result)
@@ -471,9 +480,7 @@ func (c *WebSocketClient) executeCommandsFromPayload(commands []interface{}) []m
 
 // executeCommand executes a shell command and returns output, exit code, and error
 func (c *WebSocketClient) executeCommand(command string) (string, int, error) {
-	// Parse command into parts
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
+	if command == "" {
 		return "", -1, fmt.Errorf("empty command")
 	}
 
@@ -481,7 +488,9 @@ func (c *WebSocketClient) executeCommand(command string) (string, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	// Execute command using /bin/bash -c for proper handling of pipes, redirects, etc.
+	// This matches the behavior of the agent's executor
+	cmd := exec.CommandContext(ctx, "/bin/bash", "-c", command)
 	cmd.Env = os.Environ()
 
 	output, err := cmd.CombinedOutput()
@@ -495,6 +504,7 @@ func (c *WebSocketClient) executeCommand(command string) (string, int, error) {
 		}
 	}
 
+	logging.Debug("Command [%s] executed with exit code %d", command, exitCode)
 	return string(output), exitCode, err
 }
 

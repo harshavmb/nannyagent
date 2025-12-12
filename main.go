@@ -525,11 +525,11 @@ func main() {
 
 	// Check if running in daemon mode
 	if *daemonFlag {
+		// Switch to syslog-only logging first to avoid duplicates
+		logging.EnableSyslogOnly()
+
 		logging.Info("Running in daemon mode (no interactive session)")
 		logging.Info("Logs will be sent to syslog. View with: journalctl -u nannyagent -f")
-
-		// Switch to syslog-only logging (no stdout spam in daemon mode)
-		logging.EnableSyslogOnly()
 
 		// Block forever, let background goroutines handle everything
 		select {}

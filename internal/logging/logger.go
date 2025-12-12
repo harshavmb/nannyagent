@@ -41,6 +41,7 @@ type Logger struct {
 }
 
 var defaultLogger *Logger
+var globalSyslogOnly bool // Global flag that affects all logger instances
 
 func init() {
 	defaultLogger = NewLogger()
@@ -108,7 +109,8 @@ func (l *Logger) logMessage(level LogLevel, format string, args ...interface{}) 
 	}
 
 	// Print to stdout/stderr (unless syslog-only mode)
-	if !l.syslogOnly {
+	// Check both instance and global flags
+	if !l.syslogOnly && !globalSyslogOnly {
 		log.Printf("%s %s", prefix, msg)
 	}
 }
@@ -172,12 +174,14 @@ func GetLevel() LogLevel {
 	return defaultLogger.GetLevel()
 }
 
-// EnableSyslogOnly sets syslog-only mode (no stdout/stderr)
+// EnableSyslogOnly sets syslog-only mode globally for ALL logger instances
 func EnableSyslogOnly() {
+	globalSyslogOnly = true
 	defaultLogger.syslogOnly = true
 }
 
-// DisableSyslogOnly disables syslog-only mode (logs to both syslog and stdout/stderr)
+// DisableSyslogOnly disables syslog-only mode globally for ALL logger instances
 func DisableSyslogOnly() {
+	globalSyslogOnly = false
 	defaultLogger.syslogOnly = false
 }
