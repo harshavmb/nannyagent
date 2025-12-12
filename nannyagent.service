@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/nannyagent --daemon
+ExecStart=/usr/sbin/nannyagent --daemon
 Restart=always
 RestartSec=10s
 StandardOutput=journal
@@ -26,7 +26,7 @@ LimitNOFILE=65536
 LimitNPROC=4096
 
 # Environment
-Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PATH=/usr/local/sbin:/usr/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="SUPABASE_PROJECT_URL=https://api.nannyagent.dev"
 EnvironmentFile=-/etc/nannyagent/config.env
 
