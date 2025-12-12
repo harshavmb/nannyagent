@@ -165,6 +165,7 @@ type MetricsRequest struct {
 	NetworkOutKbps float64 `json:"network_out_kbps"`
 
 	// System information
+	Hostname          string `json:"hostname"`
 	IPAddress         string `json:"ip_address"`
 	Location          string `json:"location"`
 	AgentVersion      string `json:"agent_version"`
