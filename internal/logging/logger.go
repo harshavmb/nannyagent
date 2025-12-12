@@ -145,7 +145,9 @@ func (l *Logger) Close() {
 	if l.syslogWriter != nil {
 		_ = l.syslogWriter.Close()
 	}
-} // Global logging functions
+}
+
+// Global logging functions
 func Debug(format string, args ...interface{}) {
 	defaultLogger.Debug(format, args...)
 }
