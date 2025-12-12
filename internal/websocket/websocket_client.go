@@ -66,9 +66,9 @@ type WebSocketClient struct {
 	token               string
 	ctx                 context.Context
 	cancel              context.CancelFunc
-	consecutiveFailures int        // Track consecutive connection failures
-	rebootMutex         sync.Mutex // Mutex to prevent concurrent reboot attempts
-	rebootInProgress    bool       // Flag to prevent concurrent reboot attempts
+	consecutiveFailures int           // Track consecutive connection failures
+	rebootMutex         sync.Mutex    // Mutex to prevent concurrent reboot attempts
+	rebootInProgress    bool          // Flag to prevent concurrent reboot attempts
 	patchSemaphore      chan struct{} // Semaphore to limit concurrent patch executions
 }
 
@@ -907,7 +907,7 @@ func (w *WebSocketClient) updateConnectionStatus(connected bool) {
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
-	
+
 	if resp.StatusCode != 200 {
 		logging.Debug("Connection status update returned non-200 status: %d", resp.StatusCode)
 	}
@@ -971,7 +971,7 @@ func (w *WebSocketClient) checkForPendingPatchExecutions() {
 	for _, execution := range executions {
 		// Use semaphore to limit concurrent patch executions
 		go func(exec types.PatchExecution) {
-			w.patchSemaphore <- struct{}{} // Acquire semaphore
+			w.patchSemaphore <- struct{}{}        // Acquire semaphore
 			defer func() { <-w.patchSemaphore }() // Release semaphore
 			w.handlePendingPatchExecution(exec)
 		}(execution)
@@ -1338,7 +1338,7 @@ func (w *WebSocketClient) performReboot(executionID string) {
 	}
 	w.rebootInProgress = true
 	w.rebootMutex.Unlock()
-	
+
 	logging.Info("Reboot requested for execution %s, waiting 30 seconds...", executionID)
 
 	// Update execution with reboot timestamp
@@ -1364,8 +1364,8 @@ func (w *WebSocketClient) performReboot(executionID string) {
 			if err != nil {
 				logging.Error("Failed to send PATCH request for reboot timestamp: %v", err)
 			} else {
-				io.Copy(io.Discard, resp.Body)
-				resp.Body.Close()
+				_, _ = io.Copy(io.Discard, resp.Body)
+				_ = resp.Body.Close()
 			}
 		}
 	}

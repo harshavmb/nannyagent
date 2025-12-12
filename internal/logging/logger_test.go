@@ -277,7 +277,7 @@ func TestEnableDisableSyslogOnly(t *testing.T) {
 	logger := NewLoggerWithLevel(LevelInfo)
 
 	// Enable syslog-only mode
-	EnableSyslogOnly()
+	_ = EnableSyslogOnly()
 
 	logger.Info("syslog only message")
 
