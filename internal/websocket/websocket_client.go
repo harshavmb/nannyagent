@@ -986,13 +986,41 @@ func (w *WebSocketClient) handlePendingPatchExecution(execution types.PatchExecu
 	}
 	logging.Info("Processing patch execution %s (type: %s, script_id: %s)", execution.ID, execution.ExecutionType, scriptID)
 
+	// Download and validate script
+	scriptContent, err := w.downloadPatchScript(scriptID)
+	if err != nil {
+		w.updatePatchExecutionStatus(execution.ID, "failed", 1, err.Error(), "", "")
+		return
+	}
+
+	// Write script to temporary file
+	tmpFile, err := w.writeScriptToTempFile(scriptContent)
+	if err != nil {
+		w.updatePatchExecutionStatus(execution.ID, "failed", 1, err.Error(), "", "")
+		return
+	}
+	defer func() { _ = os.Remove(tmpFile) }()
+
+	// Update status to running
+	w.updatePatchExecutionStatus(execution.ID, "running", 0, "", "", "")
+
+	// Execute the script
+	stdout, stderr, exitCode := w.executeScript(tmpFile, execution.Command)
+
+	// Process and upload results
+	w.processExecutionResults(execution, stdout, stderr, exitCode)
+
+	logging.Info("Patch execution %s completed with exit code %d", execution.ID, exitCode)
+}
+
+// downloadPatchScript downloads and validates a patch script from storage
+func (w *WebSocketClient) downloadPatchScript(scriptID string) ([]byte, error) {
 	// Get script storage path from database via proxy
 	scriptInfoURL := fmt.Sprintf("%s/functions/v1/agent-database-proxy/patch-scripts/%s", w.supabaseURL, scriptID)
 	req, err := http.NewRequest("GET", scriptInfoURL, nil)
 	if err != nil {
 		logging.Error("Failed to create script info request: %v", err)
-		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to get script info: %v", err), "", "")
-		return
+		return nil, fmt.Errorf("failed to get script info: %v", err)
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", w.token))
 
@@ -1000,15 +1028,13 @@ func (w *WebSocketClient) handlePendingPatchExecution(execution types.PatchExecu
 	scriptInfoResp, err := client.Do(req)
 	if err != nil {
 		logging.Error("Failed to fetch script info: %v", err)
-		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to fetch script info: %v", err), "", "")
-		return
+		return nil, fmt.Errorf("failed to fetch script info: %v", err)
 	}
 	defer func() { _ = scriptInfoResp.Body.Close() }()
 
 	if scriptInfoResp.StatusCode != 200 {
 		logging.Error("Script info request returned status %d", scriptInfoResp.StatusCode)
-		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Script info fetch failed with status %d", scriptInfoResp.StatusCode), "", "")
-		return
+		return nil, fmt.Errorf("script info fetch failed with status %d", scriptInfoResp.StatusCode)
 	}
 
 	var scriptInfo struct {
@@ -1016,8 +1042,7 @@ func (w *WebSocketClient) handlePendingPatchExecution(execution types.PatchExecu
 	}
 	if err := json.NewDecoder(scriptInfoResp.Body).Decode(&scriptInfo); err != nil {
 		logging.Error("Failed to decode script info: %v", err)
-		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to decode script info: %v", err), "", "")
-		return
+		return nil, fmt.Errorf("failed to decode script info: %v", err)
 	}
 
 	// Download the script from storage
@@ -1025,22 +1050,19 @@ func (w *WebSocketClient) handlePendingPatchExecution(execution types.PatchExecu
 	scriptResp, err := http.Get(scriptURL)
 	if err != nil {
 		logging.Error("Failed to download script: %v", err)
-		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to download script: %v", err), "", "")
-		return
+		return nil, fmt.Errorf("failed to download script: %v", err)
 	}
 	defer func() { _ = scriptResp.Body.Close() }()
 
 	if scriptResp.StatusCode != 200 {
 		logging.Error("Script download returned status %d", scriptResp.StatusCode)
-		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Script download failed with status %d", scriptResp.StatusCode), "", "")
-		return
+		return nil, fmt.Errorf("script download failed with status %d", scriptResp.StatusCode)
 	}
 
 	scriptContent, err := io.ReadAll(scriptResp.Body)
 	if err != nil {
 		logging.Error("Failed to read script content: %v", err)
-		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to read script: %v", err), "", "")
-		return
+		return nil, fmt.Errorf("failed to read script: %v", err)
 	}
 
 	// Basic validation: check if script appears to be a shell script
@@ -1048,61 +1070,64 @@ func (w *WebSocketClient) handlePendingPatchExecution(execution types.PatchExecu
 	// but we perform basic validation as a safety measure
 	if len(scriptContent) == 0 {
 		logging.Error("Downloaded script is empty")
-		w.updatePatchExecutionStatus(execution.ID, "failed", 1, "Downloaded script is empty", "", "")
-		return
+		return nil, fmt.Errorf("downloaded script is empty")
 	}
 	scriptStr := string(scriptContent)
 	if !strings.HasPrefix(scriptStr, "#!") {
 		logging.Warning("Script does not start with shebang (#!), may not execute correctly")
 	}
 
-	// Write script to temporary file
+	return scriptContent, nil
+}
+
+// writeScriptToTempFile writes script content to a temporary file and makes it executable
+func (w *WebSocketClient) writeScriptToTempFile(scriptContent []byte) (string, error) {
 	tmpFile, err := os.CreateTemp("", "patch-script-*.sh")
 	if err != nil {
 		logging.Error("Failed to create temp file: %v", err)
-		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to create temp file: %v", err), "", "")
-		return
+		return "", fmt.Errorf("failed to create temp file: %v", err)
 	}
-	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.Write(scriptContent); err != nil {
 		logging.Error("Failed to write script content: %v", err)
-		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to write script: %v", err), "", "")
 		_ = tmpFile.Close()
-		return
+		_ = os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to write script: %v", err)
 	}
 
 	if err := tmpFile.Chmod(0755); err != nil {
 		logging.Error("Failed to make script executable: %v", err)
-		w.updatePatchExecutionStatus(execution.ID, "failed", 1, fmt.Sprintf("Failed to chmod script: %v", err), "", "")
 		_ = tmpFile.Close()
-		return
+		_ = os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to chmod script: %v", err)
 	}
+
+	tmpFilePath := tmpFile.Name()
 	_ = tmpFile.Close()
+	return tmpFilePath, nil
+}
 
-	// Update status to running
-	w.updatePatchExecutionStatus(execution.ID, "running", 0, "", "", "")
-
-	// Execute the script with the provided command
+// executeScript executes a patch script and returns stdout, stderr, and exit code
+func (w *WebSocketClient) executeScript(scriptPath string, command string) ([]byte, []byte, int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
 	var cmd *exec.Cmd
-	if execution.Command != "" {
+	if command != "" {
 		// Split command into arguments safely to avoid command injection
 		// Note: This uses simple space splitting. For more complex cases with quotes,
 		// consider using a proper shell parser or whitelist allowed arguments
-		args := strings.Fields(execution.Command)
-		cmd = exec.CommandContext(ctx, tmpFile.Name(), args...)
+		args := strings.Fields(command)
+		cmd = exec.CommandContext(ctx, scriptPath, args...)
 	} else {
-		cmd = exec.CommandContext(ctx, tmpFile.Name())
+		cmd = exec.CommandContext(ctx, scriptPath)
 	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err = cmd.Run()
+	err := cmd.Run()
 	exitCode := 0
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -1112,16 +1137,21 @@ func (w *WebSocketClient) handlePendingPatchExecution(execution types.PatchExecu
 		}
 	}
 
-	// Parse JSON from stdout and save to separate file
-	jsonData := w.parseJSONFromOutput(stdout.String())
+	return stdout.Bytes(), stderr.Bytes(), exitCode
+}
+
+// processExecutionResults processes script execution results and uploads them to storage
+func (w *WebSocketClient) processExecutionResults(execution types.PatchExecution, stdout, stderr []byte, exitCode int) {
+	// Parse JSON from stdout
+	jsonData := w.parseJSONFromOutput(string(stdout))
 
 	// Upload stdout, stderr, and JSON output to storage
 	outputPath := fmt.Sprintf("%s/%s-stdout.txt", w.agentID, execution.ID)
 	errorPath := fmt.Sprintf("%s/%s-stderr.txt", w.agentID, execution.ID)
 	jsonPath := fmt.Sprintf("%s/%s-output.json", w.agentID, execution.ID)
 
-	w.uploadOutputToStorage(outputPath, stdout.Bytes())
-	w.uploadOutputToStorage(errorPath, stderr.Bytes())
+	w.uploadOutputToStorage(outputPath, stdout)
+	w.uploadOutputToStorage(errorPath, stderr)
 
 	// Upload JSON output to storage if present
 	if jsonData != "" {
@@ -1141,8 +1171,6 @@ func (w *WebSocketClient) handlePendingPatchExecution(execution types.PatchExecu
 	if execution.ShouldReboot && exitCode == 0 && execution.ExecutionType == "apply" {
 		go w.performReboot(execution.ID)
 	}
-
-	logging.Info("Patch execution %s completed with exit code %d", execution.ID, exitCode)
 }
 
 // parseJSONFromOutput extracts JSON data from script output
