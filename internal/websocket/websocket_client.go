@@ -208,9 +208,11 @@ func (c *WebSocketClient) handleMessages() {
 		// Update database that we're disconnected
 		c.updateConnectionStatus(false)
 
+		c.connMutex.Lock()
 		if c.conn != nil {
 			_ = c.conn.Close()
 		}
+		c.connMutex.Unlock()
 	}()
 
 	for {
@@ -219,7 +221,11 @@ func (c *WebSocketClient) handleMessages() {
 			return
 		default:
 			// If connection hasn't been established yet, wait a bit before retrying
-			if c.conn == nil {
+			c.connMutex.RLock()
+			conn := c.conn
+			c.connMutex.RUnlock()
+
+			if conn == nil {
 				time.Sleep(1 * time.Second)
 				c.consecutiveFailures++
 
@@ -232,10 +238,14 @@ func (c *WebSocketClient) handleMessages() {
 			}
 
 			// Set read deadline to detect connection issues
+			c.connMutex.RLock()
 			_ = c.conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+			c.connMutex.RUnlock()
 
 			var message WebSocketMessage
+			c.connMutex.RLock()
 			err := c.conn.ReadJSON(&message)
+			c.connMutex.RUnlock()
 
 			if err != nil {
 				// Attempt reconnection instead of returning immediately
@@ -838,7 +848,10 @@ func (c *WebSocketClient) sendTaskResult(result TaskResult) {
 		Data: result,
 	}
 
+	c.connMutex.RLock()
 	err := c.conn.WriteJSON(message)
+	c.connMutex.RUnlock()
+
 	if err != nil {
 		logging.Error("Error sending task result: %v", err)
 	}
