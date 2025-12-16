@@ -22,7 +22,22 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Helper function for minimum of two integers
+const (
+	// failureThreshold is the number of consecutive failures before logging/reconnecting
+	failureThreshold = 5
+	// maxFailuresBeforeReconnect is the number of consecutive failures before forcing reconnection
+	maxFailuresBeforeReconnect = 10
+)
+
+// allowedInterpreters contains the list of allowed script interpreters for security
+var allowedInterpreters = map[string]bool{
+	"/bin/bash":     true,
+	"/usr/bin/bash": true,
+	"bash":          true,
+	"/bin/sh":       true,
+	"/usr/bin/sh":   true,
+	"sh":            true,
+}
 
 // WebSocketMessage represents a message sent over WebSocket
 type WebSocketMessage struct {
@@ -188,7 +203,7 @@ func (c *WebSocketClient) connect() error {
 	conn, resp, err := dialer.Dial(wsURL, headers)
 	if err != nil {
 		failures := c.consecutiveFailures.Add(1)
-		if failures >= 5 && resp != nil {
+		if failures >= failureThreshold && resp != nil {
 			logging.Error("WebSocket handshake failed with status: %d (failure #%d)", resp.StatusCode, failures)
 		}
 		return fmt.Errorf("websocket connection failed: %v", err)
@@ -232,7 +247,7 @@ func (c *WebSocketClient) handleMessages() {
 				failures := c.consecutiveFailures.Add(1)
 
 				// After too many consecutive failures, attempt reconnection
-				if failures >= 10 {
+				if failures >= maxFailuresBeforeReconnect {
 					c.reconnectOnce.Do(func() {
 						go c.attemptReconnection()
 					})
@@ -932,22 +947,22 @@ func (c *WebSocketClient) attemptReconnection() {
 		default:
 			failures := c.consecutiveFailures.Add(1)
 
-			// Only show messages after 5 consecutive failures
-			if failures >= 5 {
+			// Only show messages after threshold consecutive failures
+			if failures >= failureThreshold {
 				logging.Info("Attempting WebSocket reconnection (attempt %d/%d) - %d consecutive failures", i+1, len(backoffDurations), failures)
 			}
 
 			time.Sleep(backoff)
 
 			if err := c.connect(); err != nil {
-				if failures >= 5 {
+				if failures >= failureThreshold {
 					logging.Warning("Reconnection attempt %d failed: %v", i+1, err)
 				}
 				continue
 			}
 
 			// Successfully reconnected - reset failure counter and reconnect guard
-			if failures >= 5 {
+			if failures >= failureThreshold {
 				logging.Info("WebSocket reconnected successfully after %d failures", failures)
 			}
 			c.consecutiveFailures.Store(0)
@@ -1037,12 +1052,7 @@ func (c *WebSocketClient) downloadPatchScript(scriptID string) ([]byte, error) {
 		return nil, fmt.Errorf("shebang does not specify an interpreter")
 	}
 	interpreter := fields[0]
-	allowed := false
-	if interpreter == "/bin/bash" || interpreter == "/usr/bin/bash" || interpreter == "bash" ||
-		interpreter == "/bin/sh" || interpreter == "/usr/bin/sh" || interpreter == "sh" {
-		allowed = true
-	}
-	if !allowed {
+	if !allowedInterpreters[interpreter] {
 		return nil, fmt.Errorf("interpreter %q is not allowed", interpreter)
 	}
 
