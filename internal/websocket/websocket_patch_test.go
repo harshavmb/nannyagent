@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"nannyagentv2/internal/ebpf"
@@ -72,28 +74,36 @@ func TestDownloadPatchScript(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create mock servers
-			proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if tt.mockProxyResponse == nil {
-					w.WriteHeader(http.StatusNotFound)
+			// Create mock server that handles both proxy and storage requests
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Handle proxy request for script info
+				if strings.Contains(r.URL.Path, "/functions/v1/agent-database-proxy/patch-scripts/") {
+					if tt.mockProxyResponse == nil {
+						w.WriteHeader(http.StatusNotFound)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(tt.mockProxyResponse)
 					return
 				}
-				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(tt.mockProxyResponse)
+				
+				// Handle storage request for script content
+				if strings.Contains(r.URL.Path, "/storage/v1/object/public/patch-scripts/") {
+					w.Header().Set("Content-Type", "text/plain")
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(tt.mockScriptContent))
+					return
+				}
+				
+				// Unknown path
+				w.WriteHeader(http.StatusNotFound)
 			}))
-			defer proxyServer.Close()
+			defer server.Close()
 
-			storageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "text/plain")
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte(tt.mockScriptContent))
-			}))
-			defer storageServer.Close()
-
-			// Create WebSocket client with mock servers
+			// Create WebSocket client with mock server
 			client := &WebSocketClient{
 				agentID:     "test-agent",
-				supabaseURL: proxyServer.URL,
+				supabaseURL: server.URL,
 				token:       "test-token",
 			}
 
@@ -420,7 +430,7 @@ func TestExecuteScript(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to write script: %v", err)
 			}
-			defer func() { /* cleanup */ }()
+			defer func() { os.Remove(tmpFile) }()
 
 			stdout, stderr, exitCode := client.executeScript(tmpFile, tt.command)
 

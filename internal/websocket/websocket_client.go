@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"nannyagentv2/internal/auth"
@@ -57,7 +58,7 @@ type HeartbeatData struct {
 type WebSocketClient struct {
 	agent               types.DiagnosticAgent // DiagnosticAgent interface
 	conn                *websocket.Conn
-	connMutex           sync.RWMutex // Protect concurrent access to conn
+	connMutex           sync.RWMutex  // Protect concurrent access to conn
 	agentID             string
 	authManager         *auth.AuthManager
 	metricsCollector    *metrics.Collector
@@ -65,7 +66,8 @@ type WebSocketClient struct {
 	token               string
 	ctx                 context.Context
 	cancel              context.CancelFunc
-	consecutiveFailures int           // Track consecutive connection failures
+	consecutiveFailures atomic.Int32  // Track consecutive connection failures (atomic for thread safety)
+	reconnectOnce       sync.Once     // Ensure only one reconnection attempt at a time
 	patchSemaphore      chan struct{} // Semaphore to limit concurrent patch executions
 }
 
@@ -120,7 +122,7 @@ func (w *WebSocketClient) Start() error {
 	// which will handle reconnection with backoff
 	if err := w.connect(); err != nil {
 		logging.Warning("Initial WebSocket connection failed (will retry): %v", err)
-		w.consecutiveFailures = 1 // Mark as failed so reconnection will trigger
+		w.consecutiveFailures.Store(1) // Mark as failed so reconnection will trigger
 	}
 
 	// Start message reading loop - this will handle reconnection if needed
@@ -185,9 +187,9 @@ func (c *WebSocketClient) connect() error {
 
 	conn, resp, err := dialer.Dial(wsURL, headers)
 	if err != nil {
-		c.consecutiveFailures++
-		if c.consecutiveFailures >= 5 && resp != nil {
-			logging.Error("WebSocket handshake failed with status: %d (failure #%d)", resp.StatusCode, c.consecutiveFailures)
+		failures := c.consecutiveFailures.Add(1)
+		if failures >= 5 && resp != nil {
+			logging.Error("WebSocket handshake failed with status: %d (failure #%d)", resp.StatusCode, failures)
 		}
 		return fmt.Errorf("websocket connection failed: %v", err)
 	}
@@ -227,11 +229,13 @@ func (c *WebSocketClient) handleMessages() {
 
 			if conn == nil {
 				time.Sleep(1 * time.Second)
-				c.consecutiveFailures++
+				failures := c.consecutiveFailures.Add(1)
 
 				// After too many consecutive failures, attempt reconnection
-				if c.consecutiveFailures >= 10 {
-					go c.attemptReconnection()
+				if failures >= 10 {
+					c.reconnectOnce.Do(func() {
+						go c.attemptReconnection()
+					})
 					return
 				}
 				continue
@@ -257,7 +261,7 @@ func (c *WebSocketClient) handleMessages() {
 			}
 
 			// Received WebSocket message successfully - reset failure counter
-			c.consecutiveFailures = 0
+			c.consecutiveFailures.Store(0)
 
 			switch message.Type {
 			case "heartbeat_ack":
@@ -379,6 +383,7 @@ func (c *WebSocketClient) handleDatabaseChange(data interface{}) {
 
 	case "patch_executions":
 		c.handleNewPatchExecution(newRecord)
+		return
 	}
 }
 
@@ -510,7 +515,7 @@ func (c *WebSocketClient) handleNewPatchExecution(record map[string]interface{})
 	stdout, stderr, exitCode := c.executeScript(tmpFile, command)
 
 	// Process and upload results
-	c.processExecutionResults(record, executionID, stdout, stderr, exitCode)
+	c.processExecutionResults(executionID, stdout, stderr, exitCode)
 }
 
 // writeScriptToTempFile writes script content to a temporary file and makes it executable
@@ -571,7 +576,7 @@ func (c *WebSocketClient) executeScript(scriptPath string, command string) ([]by
 }
 
 // processExecutionResults processes script execution results and uploads them to storage
-func (c *WebSocketClient) processExecutionResults(record map[string]interface{}, executionID string, stdout, stderr []byte, exitCode int) {
+func (c *WebSocketClient) processExecutionResults(executionID string, stdout, stderr []byte, exitCode int) {
 	// Parse JSON from stdout
 	jsonData := c.parseJSONFromOutput(string(stdout))
 
@@ -889,8 +894,10 @@ func (c *WebSocketClient) startHeartbeat() {
 			conn := c.conn
 			if conn == nil {
 				c.connMutex.Unlock()
-				c.consecutiveFailures++
-				go c.attemptReconnection()
+				c.consecutiveFailures.Add(1)
+				c.reconnectOnce.Do(func() {
+					go c.attemptReconnection()
+				})
 				return
 			}
 
@@ -898,8 +905,10 @@ func (c *WebSocketClient) startHeartbeat() {
 			c.connMutex.Unlock()
 
 			if err != nil {
-				c.consecutiveFailures++
-				go c.attemptReconnection()
+				c.consecutiveFailures.Add(1)
+				c.reconnectOnce.Do(func() {
+					go c.attemptReconnection()
+				})
 				return
 			}
 		}
@@ -921,28 +930,29 @@ func (c *WebSocketClient) attemptReconnection() {
 		case <-c.ctx.Done():
 			return
 		default:
-			c.consecutiveFailures++
+			failures := c.consecutiveFailures.Add(1)
 
 			// Only show messages after 5 consecutive failures
-			if c.consecutiveFailures >= 5 {
-				logging.Info("Attempting WebSocket reconnection (attempt %d/%d) - %d consecutive failures", i+1, len(backoffDurations), c.consecutiveFailures)
+			if failures >= 5 {
+				logging.Info("Attempting WebSocket reconnection (attempt %d/%d) - %d consecutive failures", i+1, len(backoffDurations), failures)
 			}
 
 			time.Sleep(backoff)
 
 			if err := c.connect(); err != nil {
-				if c.consecutiveFailures >= 5 {
+				if failures >= 5 {
 					logging.Warning("Reconnection attempt %d failed: %v", i+1, err)
 				}
 				continue
 			}
 
-			// Successfully reconnected - reset failure counter
-			if c.consecutiveFailures >= 5 {
-				logging.Info("WebSocket reconnected successfully after %d failures", c.consecutiveFailures)
+			// Successfully reconnected - reset failure counter and reconnect guard
+			if failures >= 5 {
+				logging.Info("WebSocket reconnected successfully after %d failures", failures)
 			}
-			c.consecutiveFailures = 0
-			go c.handleMessages() // Restart message handling
+			c.consecutiveFailures.Store(0)
+			c.reconnectOnce = sync.Once{} // Reset so future reconnections can happen
+			go c.handleMessages()          // Restart message handling
 			return
 		}
 	}
@@ -1006,6 +1016,34 @@ func (c *WebSocketClient) downloadPatchScript(scriptID string) ([]byte, error) {
 	scriptContent, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read script content: %v", err)
+	}
+
+	// Validation: script must not be empty
+	if len(scriptContent) == 0 {
+		return nil, fmt.Errorf("script is empty")
+	}
+
+	// Validation: script must start with a valid shebang
+	lines := strings.SplitN(string(scriptContent), "\n", 2)
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "#!") {
+		return nil, fmt.Errorf("script does not start with a valid shebang")
+	}
+
+	// Validation: only allow bash or sh as interpreters
+	shebang := strings.TrimSpace(lines[0][2:]) // Remove "#!" and trim
+	// Split shebang into interpreter and args
+	fields := strings.Fields(shebang)
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("shebang does not specify an interpreter")
+	}
+	interpreter := fields[0]
+	allowed := false
+	if interpreter == "/bin/bash" || interpreter == "/usr/bin/bash" || interpreter == "bash" ||
+		interpreter == "/bin/sh" || interpreter == "/usr/bin/sh" || interpreter == "sh" {
+		allowed = true
+	}
+	if !allowed {
+		return nil, fmt.Errorf("interpreter %q is not allowed", interpreter)
 	}
 
 	return scriptContent, nil

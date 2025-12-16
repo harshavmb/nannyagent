@@ -244,8 +244,8 @@ func TestWebSocketClientFields(t *testing.T) {
 		t.Error("Expected agent to be set")
 	}
 
-	if client.consecutiveFailures != 0 {
-		t.Errorf("Expected consecutiveFailures to be 0, got %d", client.consecutiveFailures)
+	if client.consecutiveFailures.Load() != 0 {
+		t.Errorf("Expected consecutiveFailures to be 0, got %d", client.consecutiveFailures.Load())
 	}
 
 	if client.patchSemaphore == nil {
