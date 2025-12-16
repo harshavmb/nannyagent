@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -387,12 +386,7 @@ func (c *WebSocketClient) handleNewInvestigation(record map[string]interface{}) 
 		return
 	}
 
-	log.Printf("=== [INVESTIGATION START] Investigation ID: %s ===", investigationID)
-	log.Printf("[DEBUG] Issue: %s", issue)
-
-	log.Printf(">>> [AI PATH] AI-DRIVEN investigation detected! <<<")
-	log.Printf(">>> [AI PATH] Issue: %s", issue)
-	log.Printf(">>> [AI PATH] Calling agent.DiagnoseIssue() to start TensorZero conversation")
+	logging.Info("Investigation started for issue: %s", issue)
 
 	// Start TensorZero conversation - this will:
 	// 1. Send issue to AI
@@ -404,13 +398,11 @@ func (c *WebSocketClient) handleNewInvestigation(record map[string]interface{}) 
 	err := c.agent.DiagnoseIssue(issue)
 
 	if err != nil {
-		log.Printf("[ERROR] TensorZero investigation %s failed: %v", investigationID, err)
+		logging.Error("TensorZero investigation %s failed: %v", investigationID, err)
 		return
 	}
 
-	log.Printf(">>> [AI PATH] TensorZero investigation %s completed successfully! <<<", investigationID)
-
-	log.Printf("=== [INVESTIGATION END] Investigation ID: %s ===", investigationID)
+	logging.Info("TensorZero investigation %s completed successfully!", investigationID)
 }
 
 // handlePatchExecutionTask processes a patch execution task message (direct from WebSocket)
