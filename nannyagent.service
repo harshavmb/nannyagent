@@ -29,7 +29,7 @@ LimitNPROC=4096
 
 # Environment
 Environment="PATH=/usr/local/sbin:/usr/sbin:/usr/sbin:/usr/bin:/sbin:/bin"
-Environment="SUPABASE_PROJECT_URL=https://gpqzsricripnvbrpsyws.supabase.co"
+Environment="SUPABASE_PROJECT_URL=https://api.nannyagent.dev"
 EnvironmentFile=-/etc/nannyagent/config.env
 
 # Working directory
