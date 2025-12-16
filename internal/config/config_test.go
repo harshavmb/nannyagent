@@ -235,7 +235,7 @@ func TestFindEnvFile(t *testing.T) {
 	// Create temporary directory structure
 	tmpDir := t.TempDir()
 	subDir := filepath.Join(tmpDir, "subdir")
-	err := os.Mkdir(subDir, 0755)
+	err := os.Mkdir(subDir, 0700)
 	if err != nil {
 		t.Fatalf("Failed to create subdirectory: %v", err)
 	}

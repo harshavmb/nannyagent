@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
+	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"nannyagentv2/internal/auth"
@@ -56,6 +58,7 @@ type HeartbeatData struct {
 type WebSocketClient struct {
 	agent               types.DiagnosticAgent // DiagnosticAgent interface
 	conn                *websocket.Conn
+	connMutex           sync.RWMutex // Protect concurrent access to conn
 	agentID             string
 	authManager         *auth.AuthManager
 	metricsCollector    *metrics.Collector
@@ -119,8 +122,6 @@ func (w *WebSocketClient) Start() error {
 	if err := w.connect(); err != nil {
 		logging.Warning("Initial WebSocket connection failed (will retry): %v", err)
 		w.consecutiveFailures = 1 // Mark as failed so reconnection will trigger
-	} else {
-		logging.Info("Initial WebSocket connection established successfully")
 	}
 
 	// Start message reading loop - this will handle reconnection if needed
@@ -128,6 +129,9 @@ func (w *WebSocketClient) Start() error {
 
 	// Start heartbeat
 	go w.startHeartbeat()
+
+	// Start polling for pending investigations (fallback for Realtime issues)
+	//go w.pollPendingInvestigations()
 
 	// WebSocket client started (will connect immediately or reconnect)
 	return nil
@@ -171,8 +175,6 @@ func (c *WebSocketClient) connect() error {
 	wsURL = strings.Replace(wsURL, "http://", "ws://", 1)
 	wsURL += "/functions/v1/websocket-agent-handler"
 
-	// Connecting to WebSocket
-
 	// Set up headers
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+c.token)
@@ -191,41 +193,9 @@ func (c *WebSocketClient) connect() error {
 		return fmt.Errorf("websocket connection failed: %v", err)
 	}
 
+	c.connMutex.Lock()
 	c.conn = conn
-	// WebSocket client connected
-
-	// Join the realtime channel with postgres_changes configuration
-	// This must be done BEFORE listening for messages
-	joinMsg := map[string]interface{}{
-		"event": "phx_join",
-		"topic": "realtime:public",
-		"payload": map[string]interface{}{
-			"config": map[string]interface{}{
-				"postgres_changes": []map[string]interface{}{
-					{
-						"event":  "INSERT",
-						"schema": "public",
-						"table":  "pending_investigations",
-						"filter": "agent_id=eq." + c.agentID,
-					},
-					{
-						"event":  "INSERT",
-						"schema": "public",
-						"table":  "patch_executions",
-						"filter": "agent_id=eq." + c.agentID,
-					},
-				},
-			},
-		},
-		"ref": "1",
-	}
-
-	if err := c.conn.WriteJSON(joinMsg); err != nil {
-		logging.Error("Failed to join realtime channel: %v", err)
-		c.conn.Close()
-		return err
-	}
-	logging.Info("Joined realtime channel with postgres_changes subscriptions")
+	c.connMutex.Unlock()
 
 	// Update database that we're connected
 	go c.updateConnectionStatus(true)
@@ -240,36 +210,22 @@ func (c *WebSocketClient) handleMessages() {
 		c.updateConnectionStatus(false)
 
 		if c.conn != nil {
-			// Closing WebSocket connection
 			_ = c.conn.Close()
 		}
 	}()
 
-	// Started WebSocket message listener
-	connectionStart := time.Now()
-
 	for {
 		select {
 		case <-c.ctx.Done():
-			// Only log context cancellation if there have been failures
-			if c.consecutiveFailures >= 5 {
-				logging.Debug("Context cancelled after %v, stopping message handler", time.Since(connectionStart))
-			}
 			return
 		default:
 			// If connection hasn't been established yet, wait a bit before retrying
 			if c.conn == nil {
-				// Only log after multiple failures
-				if c.consecutiveFailures >= 5 {
-					logging.Debug("No connection yet, waiting before retry (failure #%d)", c.consecutiveFailures)
-				}
-
 				time.Sleep(1 * time.Second)
 				c.consecutiveFailures++
 
 				// After too many consecutive failures, attempt reconnection
 				if c.consecutiveFailures >= 10 {
-					logging.Info("Too many connection failures, attempting reconnection...")
 					go c.attemptReconnection()
 					return
 				}
@@ -280,35 +236,9 @@ func (c *WebSocketClient) handleMessages() {
 			_ = c.conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 
 			var message WebSocketMessage
-			readStart := time.Now()
 			err := c.conn.ReadJSON(&message)
-			readDuration := time.Since(readStart)
 
 			if err != nil {
-				connectionDuration := time.Since(connectionStart)
-
-				// Only log specific errors after failure threshold
-				if c.consecutiveFailures >= 5 {
-					if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-						logging.Debug("WebSocket closed normally after %v: %v", connectionDuration, err)
-					} else if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-						logging.Error("ABNORMAL CLOSE after %v (code 1006 = server-side timeout/kill): %v", connectionDuration, err)
-						logging.Debug("Last read took %v, connection lived %v", readDuration, connectionDuration)
-					} else if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-						logging.Warning("READ TIMEOUT after %v: %v", connectionDuration, err)
-					} else {
-						logging.Error("WebSocket error after %v: %v", connectionDuration, err)
-					}
-				}
-
-				// Track consecutive failures for diagnostic threshold
-				c.consecutiveFailures++
-
-				// Only show diagnostics after multiple failures
-				if c.consecutiveFailures >= 5 {
-					logging.Debug("DIAGNOSTIC - Connection failed #%d after %v", c.consecutiveFailures, connectionDuration)
-				}
-
 				// Attempt reconnection instead of returning immediately
 				go c.attemptReconnection()
 				return
@@ -318,30 +248,27 @@ func (c *WebSocketClient) handleMessages() {
 			c.consecutiveFailures = 0
 
 			switch message.Type {
-			case "connection_ack":
-				// Connection acknowledged
-
 			case "heartbeat_ack":
 				// Heartbeat acknowledged
 
 			case "investigation_task":
-				// Received investigation task - processing
+				// Received investigation task
 				go c.handleInvestigationTask(message.Data)
+
+			case "patch_execution_task":
+				// Received patch execution task
+				go c.handlePatchExecutionTask(message.Data)
 
 			case "task_result_ack":
 				// Task result acknowledged
 
 			case "broadcast":
 				// Broadcast messages may contain postgres_changes data
-				// When subscribing to postgres_changes, we receive them as broadcast events
 				go c.handleDatabaseChange(message.Data)
 
 			case "postgres_changes":
 				// Direct database change notification (alternative format)
 				go c.handleDatabaseChange(message.Data)
-
-			default:
-				logging.Warning("Unknown message type: %s", message.Type)
 			}
 		}
 	}
@@ -363,20 +290,30 @@ func (c *WebSocketClient) handleInvestigationTask(data interface{}) {
 		return
 	}
 
-	// Execute diagnostic commands
-	results, err := c.executeDiagnosticCommands(task.DiagnosticPayload)
+	// Check if this is an AI-driven investigation (has 'issue' field)
+	issueDesc, hasIssue := task.DiagnosticPayload["issue"].(string)
 
-	// Prepare task result
-	taskResult := TaskResult{
-		TaskID:  task.TaskID,
-		Success: err == nil,
-	}
+	var taskResult TaskResult
+	taskResult.TaskID = task.TaskID
 
-	if err != nil {
-		taskResult.Error = err.Error()
-		logging.Error("Task execution failed: %v", err)
+	if hasIssue && issueDesc != "" {
+		// AI-driven investigation
+		err := c.agent.DiagnoseIssue(issueDesc)
+
+		taskResult.Success = err == nil
+		if err != nil {
+			taskResult.Error = err.Error()
+		}
 	} else {
-		taskResult.CommandResults = results
+		// Direct command execution
+		results, err := c.executeDiagnosticCommands(task.DiagnosticPayload)
+
+		taskResult.Success = err == nil
+		if err != nil {
+			taskResult.Error = err.Error()
+		} else {
+			taskResult.CommandResults = results
+		}
 	}
 
 	// Send result back
@@ -387,44 +324,28 @@ func (c *WebSocketClient) handleInvestigationTask(data interface{}) {
 func (c *WebSocketClient) handleDatabaseChange(data interface{}) {
 	dataMap, ok := data.(map[string]interface{})
 	if !ok {
-		logging.Debug("Invalid database change format: %T", data)
 		return
 	}
 
-	// The postgres_changes event comes as a broadcast message with the following structure:
-	// {
-	//   "payload": {
-	//     "data": {
-	//       "schema": "public",
-	//       "table": "pending_investigations",
-	//       "eventType": "INSERT",
-	//       "new": {...}
-	//     },
-	//     "ids": [...]
-	//   }
-	// }
-
 	payload, ok := dataMap["payload"].(map[string]interface{})
 	if !ok {
-		logging.Debug("Missing or invalid payload in database change")
 		return
 	}
 
 	eventData, ok := payload["data"].(map[string]interface{})
 	if !ok {
-		logging.Debug("Missing or invalid data in postgres_changes payload")
 		return
 	}
 
 	table, ok := eventData["table"].(string)
 	if !ok {
-		logging.Debug("Missing table in database change")
 		return
 	}
 
+	logging.Debug("Received Realtime event for table: %s", table)
+
 	eventType, ok := eventData["eventType"].(string)
 	if !ok {
-		logging.Debug("Missing eventType in database change")
 		return
 	}
 
@@ -435,21 +356,17 @@ func (c *WebSocketClient) handleDatabaseChange(data interface{}) {
 
 	newRecord, ok := eventData["new"].(map[string]interface{})
 	if !ok {
-		logging.Debug("Missing new record in database change")
 		return
 	}
 
 	switch table {
-	case "pending_investigations":
-		logging.Info("Received new investigation via Realtime postgres_changes")
+	case "investigations":
+		// Process new investigation from investigations table
 		c.handleNewInvestigation(newRecord)
+		return
 
 	case "patch_executions":
-		logging.Info("Received new patch execution via Realtime postgres_changes")
 		c.handleNewPatchExecution(newRecord)
-
-	default:
-		logging.Debug("Unknown table in database change: %s", table)
 	}
 }
 
@@ -462,44 +379,97 @@ func (c *WebSocketClient) handleNewInvestigation(record map[string]interface{}) 
 		investigationID = idField
 	}
 
-	var diagnosticPayload map[string]interface{}
-	if payload, ok := record["diagnostic_payload"]; ok {
-		if payloadMap, ok := payload.(map[string]interface{}); ok {
-			diagnosticPayload = payloadMap
-		}
-	}
+	// Extract issue from investigations table
+	issue, _ := record["issue"].(string)
 
-	if diagnosticPayload == nil {
-		logging.Error("No diagnostic payload in investigation record")
+	if issue == "" {
+		logging.Error("No issue field in investigation record")
 		return
 	}
 
-	logging.Info("Processing investigation %s", investigationID)
+	log.Printf("=== [INVESTIGATION START] Investigation ID: %s ===", investigationID)
+	log.Printf("[DEBUG] Issue: %s", issue)
 
-	// Execute diagnostic commands
-	_, err := c.executeDiagnosticCommands(diagnosticPayload)
+	log.Printf(">>> [AI PATH] AI-DRIVEN investigation detected! <<<")
+	log.Printf(">>> [AI PATH] Issue: %s", issue)
+	log.Printf(">>> [AI PATH] Calling agent.DiagnoseIssue() to start TensorZero conversation")
+
+	// Start TensorZero conversation - this will:
+	// 1. Send issue to AI
+	// 2. AI generates diagnostic commands + eBPF programs
+	// 3. Agent executes them
+	// 4. Sends results back to AI
+	// 5. AI analyzes and creates resolution plan
+	// 6. Creates episodes and inferences in TensorZero
+	err := c.agent.DiagnoseIssue(issue)
 
 	if err != nil {
-		logging.Error("Investigation %s execution failed: %v", investigationID, err)
+		log.Printf("[ERROR] TensorZero investigation %s failed: %v", investigationID, err)
 		return
 	}
 
-	logging.Info("Investigation %s completed successfully", investigationID)
+	log.Printf(">>> [AI PATH] TensorZero investigation %s completed successfully! <<<", investigationID)
+
+	log.Printf("=== [INVESTIGATION END] Investigation ID: %s ===", investigationID)
+}
+
+// handlePatchExecutionTask processes a patch execution task message (direct from WebSocket)
+func (c *WebSocketClient) handlePatchExecutionTask(data interface{}) {
+	// Convert data to map
+	taskBytes, err := json.Marshal(data)
+	if err != nil {
+		logging.Error("Error marshaling patch task data: %v", err)
+		return
+	}
+
+	var task map[string]interface{}
+	err = json.Unmarshal(taskBytes, &task)
+	if err != nil {
+		logging.Error("Error unmarshaling patch task: %v", err)
+		return
+	}
+
+	// Call the existing handler with the full task data
+	c.handleNewPatchExecution(task)
 }
 
 // handleNewPatchExecution processes a newly inserted patch execution record
 func (c *WebSocketClient) handleNewPatchExecution(record map[string]interface{}) {
-	executionID, _ := record["execution_id"].(string)
+	executionID, _ := record["id"].(string)
 	if executionID == "" {
-		idField, _ := record["id"].(string)
-		executionID = idField
+		logging.Error("No id in patch execution record")
+		return
 	}
 
-	scriptContent, _ := record["script_content"].(string)
-	patchName, _ := record["patch_name"].(string)
+	executionType, _ := record["execution_type"].(string)
+	command, _ := record["command"].(string) // Can be "--dry-run" or empty
 
-	if scriptContent == "" {
-		logging.Error("No script content in patch execution record")
+	// Get script_id from record - try multiple possible types
+	scriptIDVal, hasScriptID := record["script_id"]
+	var scriptID string
+
+	if hasScriptID {
+		// Try string first
+		if s, ok := scriptIDVal.(string); ok {
+			scriptID = s
+		} else if f, ok := scriptIDVal.(float64); ok {
+			scriptID = fmt.Sprintf("%v", int64(f))
+		} else if u, ok := scriptIDVal.(map[string]interface{}); ok {
+			// In case it's a nested object
+			if id, ok := u["id"].(string); ok {
+				scriptID = id
+			}
+		}
+	}
+
+	if scriptID == "" {
+		logging.Error("No script_id in patch execution record. Available fields: %v", record)
+		return
+	}
+
+	// For dry_run, just log (actual dry_run info was returned to API caller)
+	if executionType == "dry_run" {
+		logging.Info("Dry run for script %s is available (execution: %s)", scriptID, executionID)
 		return
 	}
 
@@ -507,24 +477,204 @@ func (c *WebSocketClient) handleNewPatchExecution(record map[string]interface{})
 	c.patchSemaphore <- struct{}{}
 	defer func() { <-c.patchSemaphore }()
 
-	logging.Info("Executing patch %s (execution: %s)", patchName, executionID)
+	logging.Info("Processing patch execution %s with script_id %s", executionID, scriptID)
 
-	// Execute patch script
-	cmd := exec.Command("bash", "-c", scriptContent)
+	// Download script from Supabase Storage
+	scriptContent, err := c.downloadPatchScript(scriptID)
+	if err != nil {
+		logging.Error("Failed to download patch script: %v", err)
+		c.updatePatchExecutionStatus(executionID, "failed", 1, fmt.Sprintf("Download failed: %v", err), "", "")
+		return
+	}
+
+	// Save script to temporary file
+	tmpFile, err := c.writeScriptToTempFile(scriptContent)
+	if err != nil {
+		logging.Error("Failed to create temp file: %v", err)
+		c.updatePatchExecutionStatus(executionID, "failed", 1, fmt.Sprintf("Temp file creation failed: %v", err), "", "")
+		return
+	}
+	defer os.Remove(tmpFile)
+
+	logging.Info("Executing patch (execution: %s)", executionID)
+
+	// Update status to running
+	c.updatePatchExecutionStatus(executionID, "running", 0, "", "", "")
+
+	// Execute patch script with output capture (pass command for --dry-run if present)
+	stdout, stderr, exitCode := c.executeScript(tmpFile, command)
+
+	// Process and upload results
+	c.processExecutionResults(record, executionID, stdout, stderr, exitCode)
+}
+
+// writeScriptToTempFile writes script content to a temporary file and makes it executable
+func (c *WebSocketClient) writeScriptToTempFile(scriptContent []byte) (string, error) {
+	tmpFile, err := os.CreateTemp("", "patch-script-*.sh")
+	if err != nil {
+		logging.Error("Failed to create temp file: %v", err)
+		return "", fmt.Errorf("failed to create temp file: %v", err)
+	}
+
+	if _, err := tmpFile.Write(scriptContent); err != nil {
+		logging.Error("Failed to write script content: %v", err)
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to write script: %v", err)
+	}
+
+	if err := os.Chmod(tmpFile.Name(), 0700); err != nil {
+		logging.Error("Failed to make script executable: %v", err)
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpFile.Name())
+		return "", fmt.Errorf("failed to chmod script: %v", err)
+	}
+
+	tmpFilePath := tmpFile.Name()
+	_ = tmpFile.Close()
+	return tmpFilePath, nil
+}
+
+// executeScript executes a patch script and returns stdout, stderr, and exit code
+func (c *WebSocketClient) executeScript(scriptPath string, command string) ([]byte, []byte, int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	if command != "" {
+		args := strings.Fields(command)
+		cmd = exec.CommandContext(ctx, scriptPath, args...)
+	} else {
+		cmd = exec.CommandContext(ctx, scriptPath)
+	}
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	startTime := time.Now()
 	err := cmd.Run()
-	duration := time.Since(startTime)
-
+	exitCode := 0
 	if err != nil {
-		logging.Error("Patch %s execution failed: %v", patchName, err)
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = 1
+		}
+	}
+
+	return stdout.Bytes(), stderr.Bytes(), exitCode
+}
+
+// processExecutionResults processes script execution results and uploads them to storage
+func (c *WebSocketClient) processExecutionResults(record map[string]interface{}, executionID string, stdout, stderr []byte, exitCode int) {
+	// Parse JSON from stdout
+	jsonData := c.parseJSONFromOutput(string(stdout))
+
+	// Upload stdout, stderr, and JSON output to storage
+	outputPath := fmt.Sprintf("%s/%s-stdout.txt", c.agentID, executionID)
+	errorPath := fmt.Sprintf("%s/%s-stderr.txt", c.agentID, executionID)
+	jsonPath := fmt.Sprintf("%s/%s-output.json", c.agentID, executionID)
+
+	c.uploadOutputToStorage(outputPath, stdout)
+	c.uploadOutputToStorage(errorPath, stderr)
+
+	// Upload JSON output to storage if present
+	if jsonData != "" {
+		c.uploadOutputToStorage(jsonPath, []byte(jsonData))
+	}
+
+	// Determine final status
+	status := "completed"
+	if exitCode != 0 {
+		status = "failed"
+	}
+
+	// Update execution status with storage paths
+	c.updatePatchExecutionStatus(executionID, status, exitCode, "", outputPath, errorPath)
+
+	logging.Info("Patch execution %s completed with exit code %d (storage paths uploaded)", executionID, exitCode)
+}
+
+// parseJSONFromOutput extracts JSON data from script output
+func (c *WebSocketClient) parseJSONFromOutput(output string) string {
+	var (
+		jsonLines []string
+		inJSON    bool
+		braces    int
+		brackets  int
+	)
+
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Look for the start of a JSON object or array
+		if !inJSON {
+			if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+				inJSON = true
+				jsonLines = nil
+				braces = 0
+				brackets = 0
+			} else {
+				continue
+			}
+		}
+		// Accumulate lines
+		jsonLines = append(jsonLines, trimmed)
+		// Count braces and brackets
+		for _, r := range trimmed {
+			switch r {
+			case '{':
+				braces++
+			case '}':
+				braces--
+			case '[':
+				brackets++
+			case ']':
+				brackets--
+			}
+		}
+		// If we've closed all opened braces/brackets, try to parse
+		if inJSON && braces == 0 && brackets == 0 {
+			jsonStr := strings.Join(jsonLines, "\n")
+			var testJSON interface{}
+			if json.Unmarshal([]byte(jsonStr), &testJSON) == nil {
+				return jsonStr
+			}
+			// If parsing fails, reset and keep looking
+			inJSON = false
+			jsonLines = nil
+		}
+	}
+
+	return ""
+}
+
+// uploadOutputToStorage uploads execution output to storage bucket
+func (c *WebSocketClient) uploadOutputToStorage(path string, content []byte) {
+	baseURL := strings.TrimSuffix(c.supabaseURL, "/")
+	url := fmt.Sprintf("%s/storage/v1/object/patch-execution-outputs/%s", baseURL, path)
+
+	req, err := http.NewRequest("POST", url, bytes.NewReader(content))
+	if err != nil {
+		logging.Error("Failed to create upload request: %v", err)
 		return
 	}
 
-	logging.Info("Patch %s completed successfully in %v (execution: %s)", patchName, duration, executionID)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	req.Header.Set("Content-Type", "text/plain")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		logging.Error("Failed to upload output: %v", err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		logging.Error("Upload failed with status %d: %s", resp.StatusCode, string(body))
+	}
 }
 
 // executeDiagnosticCommands executes the commands from a diagnostic response
@@ -707,15 +857,11 @@ func (c *WebSocketClient) startHeartbeat() {
 	ticker := time.NewTicker(30 * time.Second) // Heartbeat every 30 seconds
 	defer ticker.Stop()
 
-	// Starting heartbeat
-
 	for {
 		select {
 		case <-c.ctx.Done():
-			logging.Debug("Heartbeat stopped due to context cancellation")
 			return
 		case <-ticker.C:
-			// Sending heartbeat
 			heartbeat := WebSocketMessage{
 				Type: "heartbeat",
 				Data: HeartbeatData{
@@ -725,13 +871,22 @@ func (c *WebSocketClient) startHeartbeat() {
 				},
 			}
 
-			err := c.conn.WriteJSON(heartbeat)
-			if err != nil {
-				logging.Error("Error sending heartbeat: %v", err)
-				logging.Debug("Heartbeat failed, connection likely dead")
+			c.connMutex.RLock()
+			conn := c.conn
+			c.connMutex.RUnlock()
+
+			if conn == nil {
+				c.consecutiveFailures++
+				go c.attemptReconnection()
 				return
 			}
-			// Heartbeat sent
+
+			err := conn.WriteJSON(heartbeat)
+			if err != nil {
+				c.consecutiveFailures++
+				go c.attemptReconnection()
+				return
+			}
 		}
 	}
 }
@@ -780,7 +935,134 @@ func (c *WebSocketClient) attemptReconnection() {
 	logging.Error("Failed to reconnect after %d attempts, giving up", len(backoffDurations))
 }
 
-// updateConnectionStatus updates the agent's websocket connection status in the database
+// downloadPatchScript downloads a patch script from Supabase Storage using the script_id
+// It fetches the script_storage_path from the patch_scripts table via Edge Function proxy
+func (c *WebSocketClient) downloadPatchScript(scriptID string) ([]byte, error) {
+	baseURL := strings.TrimSuffix(c.supabaseURL, "/")
+
+	// First, fetch the script_storage_path from the patch_scripts table via proxy
+	scriptInfoURL := fmt.Sprintf("%s/functions/v1/agent-database-proxy/patch-scripts/%s", baseURL, scriptID)
+	req, err := http.NewRequest("GET", scriptInfoURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create script info request: %v", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch script info: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("script info request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var scriptInfo struct {
+		ScriptStoragePath string `json:"script_storage_path"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&scriptInfo); err != nil {
+		return nil, fmt.Errorf("failed to decode script info: %v", err)
+	}
+
+	// Now download the script from Storage
+	storageURL := fmt.Sprintf("%s/storage/v1/object/public/patch-scripts/%s", baseURL, scriptInfo.ScriptStoragePath)
+
+	logging.Debug("Downloading patch script from: %s", storageURL)
+
+	req, err = http.NewRequest("GET", storageURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create download request: %v", err)
+	}
+
+	resp, err = client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download script: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download failed with status %d", resp.StatusCode)
+	}
+
+	scriptContent, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read script content: %v", err)
+	}
+
+	return scriptContent, nil
+}
+
+// updatePatchExecutionStatus updates the status of a patch execution with proper fields
+func (c *WebSocketClient) updatePatchExecutionStatus(executionID, status string, exitCode int, errorMessage, stdoutPath, stderrPath string) {
+	baseURL := strings.TrimSuffix(c.supabaseURL, "/")
+	url := fmt.Sprintf("%s/functions/v1/agent-database-proxy/patch-executions/%s", baseURL, executionID)
+
+	payload := map[string]interface{}{
+		"status": status,
+	}
+
+	// Always set exit code if provided
+	if exitCode >= 0 {
+		payload["exit_code"] = exitCode
+	}
+
+	// Set storage paths
+	if stdoutPath != "" {
+		payload["stdout_storage_path"] = stdoutPath
+	}
+	if stderrPath != "" {
+		payload["stderr_storage_path"] = stderrPath
+	}
+
+	// Set error message
+	if errorMessage != "" {
+		payload["error_message"] = errorMessage
+	}
+
+	// Set timestamps based on status
+	now := time.Now().UTC().Format(time.RFC3339)
+	if status == "running" || status == "in_progress" {
+		payload["started_at"] = now
+	} else if status == "completed" || status == "failed" {
+		payload["completed_at"] = now
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		logging.Error("Failed to marshal status update: %v", err)
+		return
+	}
+
+	req, err := http.NewRequest("PATCH", url, bytes.NewReader(jsonData))
+	if err != nil {
+		logging.Error("Failed to create status update request: %v", err)
+		return
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		logging.Error("Failed to update patch execution status: %v", err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		logging.Error("Status update failed with status %d: %s", resp.StatusCode, string(body))
+		return
+	}
+
+	logging.Info("Updated patch execution %s status to %s", executionID, status)
+}
+
 func (w *WebSocketClient) updateConnectionStatus(connected bool) {
 	url := fmt.Sprintf("%s/functions/v1/agent-database-proxy/connection-status", w.supabaseURL)
 

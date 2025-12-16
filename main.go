@@ -468,6 +468,11 @@ func main() {
 	// Start WebSocket client for backend communications and investigations
 	wsClient := websocket.NewWebSocketClient(applicationAgent, authManager)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logging.Error("WebSocket client panicked: %v", r)
+			}
+		}()
 		if err := wsClient.Start(); err != nil {
 			logging.Error("WebSocket client error: %v", err)
 		}
@@ -475,8 +480,6 @@ func main() {
 
 	// Start background metrics collection in a goroutine
 	go func() {
-		logging.Debug("Starting background metrics collection and heartbeat...")
-
 		ticker := time.NewTicker(time.Duration(cfg.MetricsInterval) * time.Second)
 		defer ticker.Stop()
 
@@ -489,14 +492,12 @@ func main() {
 		for range ticker.C {
 			// Check if token needs refresh
 			if authManager.IsTokenExpired(token) {
-				logging.Debug("Token expiring soon, refreshing...")
 				newToken, refreshErr := authManager.EnsureAuthenticated()
 				if refreshErr != nil {
 					logging.Warning("Token refresh failed: %v", refreshErr)
 					continue
 				}
 				token = newToken
-				logging.Debug("Token refreshed successfully")
 			}
 
 			// Send heartbeat
