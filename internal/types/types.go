@@ -296,7 +296,7 @@ type PatchExecution struct {
 	ExecutionType string    `json:"execution_type"` // Allowed values: "dry_run", "apply". If a reboot is required after applying, set ShouldReboot to true.
 	Status        string    `json:"status"`         // pending, executing, completed, failed
 	Command       string    `json:"command"`
-	ShouldReboot  bool      `json:"should_reboot"`  // Indicates if a reboot should be performed after execution. Used in conjunction with ExecutionType="apply".
+	ShouldReboot  bool      `json:"should_reboot"` // Indicates if a reboot should be performed after execution. Used in conjunction with ExecutionType="apply".
 	CreatedAt     time.Time `json:"created_at"`
 }
 
