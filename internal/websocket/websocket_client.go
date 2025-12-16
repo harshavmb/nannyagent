@@ -58,6 +58,7 @@ type WebSocketClient struct {
 	agent               types.DiagnosticAgent // DiagnosticAgent interface
 	conn                *websocket.Conn
 	connMutex           sync.RWMutex // Protect concurrent access to conn
+	writeMutex          sync.Mutex   // Protects websocket writes
 	agentID             string
 	authManager         *auth.AuthManager
 	metricsCollector    *metrics.Collector
@@ -237,18 +238,12 @@ func (c *WebSocketClient) handleMessages() {
 				continue
 			}
 
-			// Set read deadline to detect connection issues and read message
-			// These operations are kept in a single critical section to ensure atomicity
-			// Using Lock instead of RLock because these operations modify connection state
-			c.connMutex.Lock()
-			if c.conn == nil {
-				c.connMutex.Unlock()
-				continue
-			}
-			_ = c.conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+			// Must lock around ReadJSON to prevent concurrent writes
+			c.writeMutex.Lock()
+			_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 			var message WebSocketMessage
-			err := c.conn.ReadJSON(&message)
-			c.connMutex.Unlock()
+			err := conn.ReadJSON(&message)
+			c.writeMutex.Unlock()
 
 			if err != nil {
 				// Attempt reconnection instead of returning immediately
@@ -851,16 +846,17 @@ func (c *WebSocketClient) sendTaskResult(result TaskResult) {
 		Data: result,
 	}
 
-	c.connMutex.Lock()
+	c.writeMutex.Lock()
+	defer c.writeMutex.Unlock()
+
+	c.connMutex.RLock()
+	defer c.connMutex.RUnlock()
 	if c.conn == nil {
-		c.connMutex.Unlock()
 		logging.Error("Cannot send task result: connection is nil")
 		return
 	}
-	err := c.conn.WriteJSON(message)
-	c.connMutex.Unlock()
 
-	if err != nil {
+	if err := c.conn.WriteJSON(message); err != nil {
 		logging.Error("Error sending task result: %v", err)
 	}
 }
@@ -884,18 +880,21 @@ func (c *WebSocketClient) startHeartbeat() {
 				},
 			}
 
-			// Check and write in single critical section to avoid TOCTOU issues
-			c.connMutex.Lock()
+			c.writeMutex.Lock()
+
+			c.connMutex.RLock()
 			conn := c.conn
 			if conn == nil {
-				c.connMutex.Unlock()
+				c.connMutex.RUnlock()
+				c.writeMutex.Unlock()
 				c.consecutiveFailures++
 				go c.attemptReconnection()
 				return
 			}
 
 			err := conn.WriteJSON(heartbeat)
-			c.connMutex.Unlock()
+			c.connMutex.RUnlock()
+			c.writeMutex.Unlock()
 
 			if err != nil {
 				c.consecutiveFailures++
