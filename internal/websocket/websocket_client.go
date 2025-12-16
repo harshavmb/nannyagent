@@ -241,6 +241,10 @@ func (c *WebSocketClient) handleMessages() {
 			// These operations are kept in a single critical section to ensure atomicity
 			// Using Lock instead of RLock because these operations modify connection state
 			c.connMutex.Lock()
+			if c.conn == nil {
+				c.connMutex.Unlock()
+				continue
+			}
 			_ = c.conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 			var message WebSocketMessage
 			err := c.conn.ReadJSON(&message)
@@ -848,6 +852,11 @@ func (c *WebSocketClient) sendTaskResult(result TaskResult) {
 	}
 
 	c.connMutex.Lock()
+	if c.conn == nil {
+		c.connMutex.Unlock()
+		logging.Error("Cannot send task result: connection is nil")
+		return
+	}
 	err := c.conn.WriteJSON(message)
 	c.connMutex.Unlock()
 
