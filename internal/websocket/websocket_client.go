@@ -239,11 +239,12 @@ func (c *WebSocketClient) handleMessages() {
 
 			// Set read deadline to detect connection issues and read message
 			// These operations are kept in a single critical section to ensure atomicity
-			c.connMutex.RLock()
+			// Using Lock instead of RLock because these operations modify connection state
+			c.connMutex.Lock()
 			_ = c.conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 			var message WebSocketMessage
 			err := c.conn.ReadJSON(&message)
-			c.connMutex.RUnlock()
+			c.connMutex.Unlock()
 
 			if err != nil {
 				// Attempt reconnection instead of returning immediately
@@ -874,18 +875,17 @@ func (c *WebSocketClient) startHeartbeat() {
 				},
 			}
 
-			c.connMutex.RLock()
+			// Check and write in single critical section to avoid TOCTOU issues
+			c.connMutex.Lock()
 			conn := c.conn
-			c.connMutex.RUnlock()
-
 			if conn == nil {
+				c.connMutex.Unlock()
 				c.consecutiveFailures++
 				go c.attemptReconnection()
 				return
 			}
 
-			c.connMutex.Lock()
-			err := c.conn.WriteJSON(heartbeat)
+			err := conn.WriteJSON(heartbeat)
 			c.connMutex.Unlock()
 
 			if err != nil {
