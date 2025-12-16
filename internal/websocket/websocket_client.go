@@ -208,9 +208,11 @@ func (c *WebSocketClient) handleMessages() {
 		// Update database that we're disconnected
 		c.updateConnectionStatus(false)
 
+		c.connMutex.Lock()
 		if c.conn != nil {
 			_ = c.conn.Close()
 		}
+		c.connMutex.Unlock()
 	}()
 
 	for {
@@ -219,7 +221,11 @@ func (c *WebSocketClient) handleMessages() {
 			return
 		default:
 			// If connection hasn't been established yet, wait a bit before retrying
-			if c.conn == nil {
+			c.connMutex.RLock()
+			conn := c.conn
+			c.connMutex.RUnlock()
+
+			if conn == nil {
 				time.Sleep(1 * time.Second)
 				c.consecutiveFailures++
 
@@ -231,11 +237,18 @@ func (c *WebSocketClient) handleMessages() {
 				continue
 			}
 
-			// Set read deadline to detect connection issues
+			// Set read deadline to detect connection issues and read message
+			// These operations are kept in a single critical section to ensure atomicity
+			// Using Lock instead of RLock because these operations modify connection state
+			c.connMutex.Lock()
+			if c.conn == nil {
+				c.connMutex.Unlock()
+				continue
+			}
 			_ = c.conn.SetReadDeadline(time.Now().Add(90 * time.Second))
-
 			var message WebSocketMessage
 			err := c.conn.ReadJSON(&message)
+			c.connMutex.Unlock()
 
 			if err != nil {
 				// Attempt reconnection instead of returning immediately
@@ -838,7 +851,15 @@ func (c *WebSocketClient) sendTaskResult(result TaskResult) {
 		Data: result,
 	}
 
+	c.connMutex.Lock()
+	if c.conn == nil {
+		c.connMutex.Unlock()
+		logging.Error("Cannot send task result: connection is nil")
+		return
+	}
 	err := c.conn.WriteJSON(message)
+	c.connMutex.Unlock()
+
 	if err != nil {
 		logging.Error("Error sending task result: %v", err)
 	}
@@ -863,17 +884,19 @@ func (c *WebSocketClient) startHeartbeat() {
 				},
 			}
 
-			c.connMutex.RLock()
+			// Check and write in single critical section to avoid TOCTOU issues
+			c.connMutex.Lock()
 			conn := c.conn
-			c.connMutex.RUnlock()
-
 			if conn == nil {
+				c.connMutex.Unlock()
 				c.consecutiveFailures++
 				go c.attemptReconnection()
 				return
 			}
 
 			err := conn.WriteJSON(heartbeat)
+			c.connMutex.Unlock()
+
 			if err != nil {
 				c.consecutiveFailures++
 				go c.attemptReconnection()
