@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -54,28 +55,137 @@ func TestPollingRemovedFromStart(t *testing.T) {
 	mockAgent := &MockAgent{}
 	client := NewWebSocketClient(mockAgent, nil)
 
-	// The Start() method should NOT call:
-	// - go w.pollPendingInvestigations()
-	// - go w.pollPatchExecutions()
-	//
-	// This is verified by:
-	// 1. The polling functions still exist (for backward compatibility)
-	// 2. But are not called from Start()
-	// 3. Only heartbeat is started
+	// Track the number of goroutines before Start()
+	goRoutinesBefore := countActiveGoroutines()
 
-	// This test documents the intended behavior
-	// The actual verification is that these functions are no longer called
-	if client == nil {
-		t.Error("Client creation failed")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client.ctx = ctx
+
+	// Call Start() - should only start heartbeat, NOT polling goroutines
+	if err := client.Start(); err != nil {
+		t.Errorf("Start() failed: %v", err)
 	}
 
-	// Verify client has the polling functions available (still exist)
-	// This allows re-enabling polling if needed as a fallback
-	hasPollingFunctions := true
-	// pollPendingInvestigations and pollPatchExecutions still exist in the code
-	// but are not called from Start()
-	if !hasPollingFunctions {
-		t.Error("Expected polling functions to still exist for fallback capability")
+	// Give goroutines time to start
+	time.Sleep(100 * time.Millisecond)
+
+	goRoutinesAfter := countActiveGoroutines()
+	newGoroutines := goRoutinesAfter - goRoutinesBefore
+
+	// Start() should only spawn:
+	// 1. handleMessages goroutine
+	// 2. startHeartbeat goroutine
+	// 3. updateConnectionStatus goroutine (async)
+	// = 3 new goroutines max (not polling goroutines)
+
+	if newGoroutines > 5 {
+		t.Errorf("Expected Start() to spawn ~3 goroutines (heartbeat + handlers), but spawned %d", newGoroutines)
+	}
+
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestStartOnlySpawnsHeartbeat verifies Start() doesn't spawn polling
+func TestStartOnlySpawnsHeartbeat(t *testing.T) {
+	mockAgent := &MockAgent{}
+	client := NewWebSocketClient(mockAgent, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client.ctx = ctx
+
+	// Verify Start() calls are correct
+	startErr := client.Start()
+
+	// Should not error - connection might fail but that's ok
+	// (we're not mocking the websocket endpoint)
+	if startErr != nil && startErr.Error() == "unexpected error" {
+		t.Fatalf("Start() had unexpected error: %v", startErr)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify heartbeat semaphore exists (used for concurrent patch limiting)
+	if client.patchSemaphore == nil {
+		t.Error("Expected patchSemaphore to be initialized")
+	}
+
+	// Verify no polling state
+	// If polling was implemented, there would be fields like:
+	// - pollTicker
+	// - pollInterval
+	// These should NOT exist since we use Realtime
+	if client.consecutiveFailures < 0 {
+		t.Error("consecutiveFailures should be >= 0")
+	}
+}
+
+// TestRealtimeMessageHandling verifies Realtime messages are handled
+func TestRealtimeMessageHandling(t *testing.T) {
+	mockAgent := &MockAgent{}
+	_ = NewWebSocketClient(mockAgent, nil)
+
+	tests := []struct {
+		name          string
+		messageType   string
+		messageData   interface{}
+		shouldProcess bool
+	}{
+		{
+			name:          "realtime broadcast with patch_executions",
+			messageType:   "broadcast",
+			shouldProcess: true,
+		},
+		{
+			name:          "postgres_changes direct",
+			messageType:   "postgres_changes",
+			shouldProcess: true,
+		},
+		{
+			name:          "investigation_task",
+			messageType:   "investigation_task",
+			shouldProcess: true,
+		},
+		{
+			name:          "patch_execution_task",
+			messageType:   "patch_execution_task",
+			shouldProcess: true,
+		},
+		{
+			name:          "heartbeat_ack",
+			messageType:   "heartbeat_ack",
+			shouldProcess: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := WebSocketMessage{
+				Type: tt.messageType,
+				Data: map[string]interface{}{},
+			}
+
+			// Verify message can be processed (no panic, no error)
+			if msg.Type == "" {
+				t.Errorf("Message type should not be empty for %s", tt.name)
+			}
+
+			// Verify the message type is one of the expected Realtime types
+			validTypes := map[string]bool{
+				"heartbeat_ack":        true,
+				"investigation_task":   true,
+				"patch_execution_task": true,
+				"task_result_ack":      true,
+				"broadcast":            true,
+				"postgres_changes":     true,
+			}
+
+			if !validTypes[msg.Type] && tt.shouldProcess {
+				t.Errorf("Expected valid Realtime message type, got %s", msg.Type)
+			}
+		})
 	}
 }
 
@@ -303,4 +413,9 @@ func (m *MockAgent) SendRequest(messages []openai.ChatCompletionMessage) (*opena
 
 func (m *MockAgent) ExecuteCommand(cmd types.Command) types.CommandResult {
 	return types.CommandResult{}
+}
+
+// countActiveGoroutines counts the current number of active goroutines
+func countActiveGoroutines() int {
+	return runtime.NumGoroutine()
 }

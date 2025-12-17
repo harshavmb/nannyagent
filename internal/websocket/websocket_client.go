@@ -18,10 +18,19 @@ import (
 	"nannyagentv2/internal/metrics"
 	"nannyagentv2/internal/types"
 
+	"github.com/google/shlex"
 	"github.com/gorilla/websocket"
 )
 
-// Helper function for minimum of two integers
+// allowedInterpreters contains the list of allowed script interpreters for security
+var allowedInterpreters = map[string]bool{
+	"/bin/bash":     true,
+	"/usr/bin/bash": true,
+	"bash":          true,
+	"/bin/sh":       true,
+	"/usr/bin/sh":   true,
+	"sh":            true,
+}
 
 // WebSocketMessage represents a message sent over WebSocket
 type WebSocketMessage struct {
@@ -130,9 +139,6 @@ func (w *WebSocketClient) Start() error {
 	// Start heartbeat
 	go w.startHeartbeat()
 
-	// Start polling for pending investigations (fallback for Realtime issues)
-	//go w.pollPendingInvestigations()
-
 	// WebSocket client started (will connect immediately or reconnect)
 	return nil
 }
@@ -227,15 +233,8 @@ func (c *WebSocketClient) handleMessages() {
 			c.connMutex.RUnlock()
 
 			if conn == nil {
-				time.Sleep(1 * time.Second)
-				c.consecutiveFailures++
-
-				// After too many consecutive failures, attempt reconnection
-				if c.consecutiveFailures >= 10 {
-					go c.attemptReconnection()
-					return
-				}
-				continue
+				go c.attemptReconnection()
+				return
 			}
 
 			// Must lock around ReadJSON to prevent concurrent writes
@@ -614,18 +613,18 @@ func (c *WebSocketClient) executeScript(scriptPath string, command string) ([]by
 	defer cancel()
 
 	var cmd *exec.Cmd
-	if command != "" {
-		args := strings.Fields(command)
-		cmd = exec.CommandContext(ctx, scriptPath, args...)
-	} else {
-		cmd = exec.CommandContext(ctx, scriptPath)
+	args, err := shlex.Split(command)
+	if err != nil {
+		return nil, []byte(fmt.Errorf("invalid command syntax: %w", err).Error()), 1
 	}
+
+	cmd = exec.CommandContext(ctx, scriptPath, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 	exitCode := 0
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -957,22 +956,30 @@ func (c *WebSocketClient) startHeartbeat() {
 
 			c.connMutex.RLock()
 			conn := c.conn
+			c.connMutex.RUnlock()
 			if conn == nil {
-				c.connMutex.RUnlock()
 				c.writeMutex.Unlock()
+				// Connection lost - wait and retry instead of returning
+				// The connection will be re-established by attemptReconnection
 				c.consecutiveFailures++
-				go c.attemptReconnection()
-				return
+				time.Sleep(5 * time.Second)
+				continue
 			}
 
 			err := conn.WriteJSON(heartbeat)
-			c.connMutex.RUnlock()
 			c.writeMutex.Unlock()
 
 			if err != nil {
+				logging.Warning("Heartbeat send failed: %v", err)
 				c.consecutiveFailures++
-				go c.attemptReconnection()
-				return
+				// Don't return - just skip this heartbeat and retry on next tick
+				// attemptReconnection is already triggered by handleMessages on read error
+				continue
+			}
+
+			// Heartbeat sent successfully
+			if c.consecutiveFailures > 0 {
+				c.consecutiveFailures = 0 // Reset on successful send
 			}
 		}
 	}
@@ -1080,6 +1087,29 @@ func (c *WebSocketClient) downloadPatchScript(scriptID string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read script content: %v", err)
 	}
 
+	// Validation: script must not be empty
+	if len(scriptContent) == 0 {
+		return nil, fmt.Errorf("script is empty")
+	}
+
+	// Validation: script must start with a valid shebang
+	lines := strings.SplitN(string(scriptContent), "\n", 2)
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "#!") {
+		return nil, fmt.Errorf("script does not start with a valid shebang")
+	}
+
+	// Validation: only allow bash or sh as interpreters
+	shebang := strings.TrimSpace(lines[0][2:]) // Remove "#!" and trim
+	// Split shebang into interpreter and args
+	fields := strings.Fields(shebang)
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("shebang does not specify an interpreter")
+	}
+	interpreter := fields[0]
+	if !allowedInterpreters[interpreter] {
+		return nil, fmt.Errorf("interpreter %q is not allowed", interpreter)
+	}
+
 	return scriptContent, nil
 }
 
@@ -1112,9 +1142,10 @@ func (c *WebSocketClient) updatePatchExecutionStatus(executionID, status string,
 
 	// Set timestamps based on status
 	now := time.Now().UTC().Format(time.RFC3339)
-	if status == "running" || status == "in_progress" {
+	switch status {
+	case "running", "in_progress":
 		payload["started_at"] = now
-	} else if status == "completed" || status == "failed" {
+	case "completed", "failed":
 		payload["completed_at"] = now
 	}
 

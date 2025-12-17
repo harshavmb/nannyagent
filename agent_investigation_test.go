@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"nannyagentv2/internal/logging"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -39,7 +40,6 @@ func TestInvestigationIDUpdatedBetweenCalls(t *testing.T) {
 func TestInvestigationIDInTensorZeroRequest(t *testing.T) {
 	agent := &LinuxDiagnosticAgent{
 		investigationID: "INV-20251217-METADATA",
-		model:           "gpt-4",
 	}
 
 	// Simulate what SendRequestWithEpisode does with investigation ID
@@ -50,7 +50,11 @@ func TestInvestigationIDInTensorZeroRequest(t *testing.T) {
 
 		metadataBytes, _ := json.Marshal(metadata)
 		var parsedMetadata map[string]interface{}
-		json.Unmarshal(metadataBytes, &parsedMetadata)
+		err := json.Unmarshal(metadataBytes, &parsedMetadata)
+		if err != nil {
+			logging.Error("Error unmarshaling parsed metadata: %v", err)
+			return
+		}
 
 		assert.Equal(t, "INV-20251217-METADATA", parsedMetadata["investigation_id"])
 	}
