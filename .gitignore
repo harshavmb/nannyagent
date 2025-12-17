@@ -33,3 +33,5 @@ nanny-agent*
 build/
 dist/
 docs/
+coverage.txt
+coverage.out

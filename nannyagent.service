@@ -16,7 +16,9 @@ SyslogIdentifier=nannyagent
 # Security hardening
 NoNewPrivileges=false
 PrivateTmp=true
-ProtectSystem=strict
+## need a thorough review on this, anything else other than this fails as
+## as patching literally touches every filesystem, cannot be strict/full
+ProtectSystem=false
 ProtectHome=true
 ReadWritePaths=/var/lib/nannyagent
 ReadWritePaths=-/etc/nannyagent

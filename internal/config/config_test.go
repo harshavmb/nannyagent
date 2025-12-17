@@ -235,7 +235,7 @@ func TestFindEnvFile(t *testing.T) {
 	// Create temporary directory structure
 	tmpDir := t.TempDir()
 	subDir := filepath.Join(tmpDir, "subdir")
-	err := os.Mkdir(subDir, 0755)
+	err := os.Mkdir(subDir, 0700)
 	if err != nil {
 		t.Fatalf("Failed to create subdirectory: %v", err)
 	}
@@ -257,7 +257,12 @@ func TestFindEnvFile(t *testing.T) {
 
 	// Should find .env in parent
 	found := findEnvFile()
-	if found != envPath {
+
+	// Normalize paths for comparison (macOS symlinks /var/folders to /private/var/folders)
+	foundReal, _ := filepath.EvalSymlinks(found)
+	wantReal, _ := filepath.EvalSymlinks(envPath)
+
+	if foundReal != wantReal {
 		t.Errorf("findEnvFile() = %v, want %v", found, envPath)
 	}
 }
