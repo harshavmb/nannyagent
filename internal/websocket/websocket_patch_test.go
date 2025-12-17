@@ -1,7 +1,6 @@
 package websocket
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -495,11 +494,6 @@ func TestCountSuccessfulCommands(t *testing.T) {
 	if count != expected {
 		t.Fatalf("expected %d successful commands, got %d", expected, count)
 	}
-}
-
-// Helper function for string matching
-func contains(s, substr string) bool {
-	return bytes.Contains([]byte(s), []byte(substr))
 }
 
 // BenchmarkDownloadPatchScript benchmarks script download
