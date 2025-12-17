@@ -8,39 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"nannyagentv2/internal/ebpf"
-	"nannyagentv2/internal/types"
-
-	"github.com/sashabaranov/go-openai"
 )
 
-// MockDiagnosticAgent implements types.DiagnosticAgent for testing
-type MockDiagnosticAgent struct{}
-
-func (m *MockDiagnosticAgent) DiagnoseIssue(issue string) error {
-	return nil
-}
-
-func (m *MockDiagnosticAgent) ConvertEBPFProgramsToTraceSpecs(requests []types.EBPFRequest) []ebpf.TraceSpec {
-	return []ebpf.TraceSpec{}
-}
-
-func (m *MockDiagnosticAgent) ExecuteEBPFTraces(specs []ebpf.TraceSpec) []map[string]interface{} {
-	return []map[string]interface{}{}
-}
-
-func (m *MockDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatCompletionMessage, episodeID string) (*openai.ChatCompletionResponse, error) {
-	return nil, nil
-}
-
-func (m *MockDiagnosticAgent) SendRequest(messages []openai.ChatCompletionMessage) (*openai.ChatCompletionResponse, error) {
-	return nil, nil
-}
-
-func (m *MockDiagnosticAgent) ExecuteCommand(cmd types.Command) types.CommandResult {
-	return types.CommandResult{}
-}
+// Note: MockDiagnosticAgent is defined in websocket_investigation_test.go
+// This avoids duplicate declarations across test files
 
 // TestDownloadPatchScript tests the downloadPatchScript function
 func TestDownloadPatchScript(t *testing.T) {

@@ -270,6 +270,21 @@ func (m *MockAgent) DiagnoseIssue(issue string) error {
 	return m.diagnosticError
 }
 
+func (m *MockAgent) DiagnoseIssueWithInvestigation(issue string) error {
+	return m.diagnosticError
+}
+
+func (m *MockAgent) GetEpisodeID() string {
+	return ""
+}
+
+func (m *MockAgent) SetInvestigationID(id string) {
+}
+
+func (m *MockAgent) GetInvestigationID() string {
+	return ""
+}
+
 func (m *MockAgent) ConvertEBPFProgramsToTraceSpecs(ebpfRequests []types.EBPFRequest) []ebpf.TraceSpec {
 	return []ebpf.TraceSpec{}
 }

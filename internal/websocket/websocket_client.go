@@ -283,33 +283,76 @@ func (c *WebSocketClient) handleMessages() {
 
 // handleInvestigationTask processes investigation tasks from the backend
 func (c *WebSocketClient) handleInvestigationTask(data interface{}) {
+	logging.Info("[WEBSOCKET_TASK] Received investigation_task message")
 	// Parse task data
 	taskBytes, err := json.Marshal(data)
 	if err != nil {
-		logging.Error("Error marshaling task data: %v", err)
+		logging.Error("[WEBSOCKET_TASK] Error marshaling task data: %v", err)
 		return
 	}
 
 	var task InvestigationTask
 	err = json.Unmarshal(taskBytes, &task)
 	if err != nil {
-		logging.Error("Error unmarshaling investigation task: %v", err)
+		logging.Error("[WEBSOCKET_TASK] Error unmarshaling investigation task: %v", err)
 		return
+	}
+	logging.Info("[WEBSOCKET_TASK] Parsed task - ID: %s, initiated_by: %s", task.InvestigationID, task.DiagnosticPayload["initiated_by"])
+
+	// Check if investigation has a timestamp field to validate timeliness
+	if createdAtStr, ok := task.DiagnosticPayload["created_at"].(string); ok {
+		createdAt, err := time.Parse(time.RFC3339, createdAtStr)
+		if err == nil {
+			timeSinceCreation := time.Since(createdAt)
+			maxAge := 5 * time.Minute
+
+			if timeSinceCreation > maxAge {
+				logging.Error("Investigation %s received %v after creation (max age: %v). Discarding stale investigation.",
+					task.InvestigationID, timeSinceCreation, maxAge)
+				return
+			}
+		}
+	}
+
+	// Check if investigation has initiated_by set (should NOT be from agent creating new ones)
+	initiatedBy, hasInitiatedBy := task.DiagnosticPayload["initiated_by"].(string)
+	logging.Info("[WEBSOCKET_TASK] Checking initiated_by - has: %v, value: '%s'", hasInitiatedBy, initiatedBy)
+	if !hasInitiatedBy || initiatedBy == "" || initiatedBy == "agent" {
+		logging.Warning("[WEBSOCKET_TASK] Investigation %s has invalid initiated_by: '%s'. Skipping agent-initiated investigations.",
+			task.InvestigationID, initiatedBy)
+		return
+	}
+	logging.Info("[WEBSOCKET_TASK] Investigation %s passed initiated_by check, proceeding", task.InvestigationID)
+
+	// Update investigation status to in_progress
+	logging.Info("[WEBSOCKET_TASK] Updating investigation %s status to in_progress", task.InvestigationID)
+	if err := c.updateInvestigationStatus(task.InvestigationID, "in_progress"); err != nil {
+		logging.Error("[WEBSOCKET_TASK] Failed to update investigation %s status to in_progress: %v", task.InvestigationID, err)
 	}
 
 	// Check if this is an AI-driven investigation (has 'issue' field)
 	issueDesc, hasIssue := task.DiagnosticPayload["issue"].(string)
+	logging.Info("[WEBSOCKET_TASK] Investigation %s has issue field: %v, issue: %s", task.InvestigationID, hasIssue, issueDesc)
 
 	var taskResult TaskResult
 	taskResult.TaskID = task.TaskID
 
 	if hasIssue && issueDesc != "" {
-		// AI-driven investigation
-		err := c.agent.DiagnoseIssue(issueDesc)
+		// AI-driven investigation - pass investigation_id for tracking
+		// Use the backend-initiated variant to prevent creating duplicate investigations
+		// Set the investigation ID on the agent so it passes it to tensorzero-proxy
+		c.agent.SetInvestigationID(task.InvestigationID)
+
+		err := c.diagnoseIssueWithTracking(issueDesc, task.InvestigationID)
 
 		taskResult.Success = err == nil
 		if err != nil {
 			taskResult.Error = err.Error()
+			// Update status to failed if diagnosis failed
+			_ = c.updateInvestigationStatus(task.InvestigationID, "failed")
+		} else {
+			// Update status to completed on success
+			_ = c.updateInvestigationStatus(task.InvestigationID, "completed")
 		}
 	} else {
 		// Direct command execution
@@ -318,8 +361,10 @@ func (c *WebSocketClient) handleInvestigationTask(data interface{}) {
 		taskResult.Success = err == nil
 		if err != nil {
 			taskResult.Error = err.Error()
+			_ = c.updateInvestigationStatus(task.InvestigationID, "failed")
 		} else {
 			taskResult.CommandResults = results
+			_ = c.updateInvestigationStatus(task.InvestigationID, "completed")
 		}
 	}
 
@@ -374,10 +419,12 @@ func (c *WebSocketClient) handleDatabaseChange(data interface{}) {
 
 	case "patch_executions":
 		c.handleNewPatchExecution(newRecord)
+		return
 	}
 }
 
-// handleNewInvestigation processes a newly inserted investigation record
+// handleNewInvestigation processes a newly inserted investigation record from Realtime
+// This is triggered when a new investigation is inserted into the database
 func (c *WebSocketClient) handleNewInvestigation(record map[string]interface{}) {
 	investigationID, _ := record["investigation_id"].(string)
 	if investigationID == "" {
@@ -394,23 +441,39 @@ func (c *WebSocketClient) handleNewInvestigation(record map[string]interface{}) 
 		return
 	}
 
-	logging.Info("Investigation started for issue: %s", issue)
-
-	// Start TensorZero conversation - this will:
-	// 1. Send issue to AI
-	// 2. AI generates diagnostic commands + eBPF programs
-	// 3. Agent executes them
-	// 4. Sends results back to AI
-	// 5. AI analyzes and creates resolution plan
-	// 6. Creates episodes and inferences in TensorZero
-	err := c.agent.DiagnoseIssue(issue)
-
-	if err != nil {
-		logging.Error("TensorZero investigation %s failed: %v", investigationID, err)
+	// Check if this was initiated by the agent (don't re-process agent-initiated ones)
+	initiatedBy, _ := record["initiated_by"].(string)
+	logging.Info("[REALTIME] Received investigation event - ID: %s, initiated_by: %s, issue: %s", investigationID, initiatedBy, issue)
+	if initiatedBy == "agent" {
+		logging.Warning("[REALTIME] Ignoring investigation %s initiated by agent itself (Realtime event)", investigationID)
 		return
 	}
 
-	logging.Info("TensorZero investigation %s completed successfully!", investigationID)
+	logging.Info("[REALTIME] Investigation started for issue: %s (from Realtime INSERT)", issue)
+
+	// Update investigation status to in_progress
+	logging.Info("[STATUS_UPDATE] Updating investigation %s status to in_progress", investigationID)
+	if err := c.updateInvestigationStatus(investigationID, "in_progress"); err != nil {
+		logging.Error("[STATUS_UPDATE] Failed to update investigation %s status to in_progress: %v", investigationID, err)
+	}
+
+	// For portal-initiated investigations, pass the investigation_id to the agent
+	// The agent will then pass it to tensorzero-proxy in the request metadata
+	// This tells tensorzero-proxy to UPDATE this investigation instead of creating a duplicate
+	c.agent.SetInvestigationID(investigationID) // Use backend-aware diagnosis method for Realtime-triggered investigations
+	logging.Info("[DIAGNOSIS] Starting diagnoseIssueWithTracking for investigation %s", investigationID)
+	err := c.diagnoseIssueWithTracking(issue, investigationID)
+
+	if err != nil {
+		logging.Error("[DIAGNOSIS] TensorZero investigation %s failed: %v", investigationID, err)
+		// Update status to failed
+		logging.Info("[STATUS_UPDATE] Updating investigation %s status to failed", investigationID)
+		_ = c.updateInvestigationStatus(investigationID, "failed")
+		return
+	}
+
+	logging.Info("[DIAGNOSIS] TensorZero investigation %s completed successfully!", investigationID)
+	// Status is already updated to completed by diagnoseIssueWithTracking
 }
 
 // handlePatchExecutionTask processes a patch execution task message (direct from WebSocket)
@@ -441,6 +504,17 @@ func (c *WebSocketClient) handleNewPatchExecution(record map[string]interface{})
 		return
 	}
 
+	// Check if execution is too old (discard if created more than 1 minute ago)
+	// This prevents processing stale executions from the database
+	if createdAt, ok := record["created_at"].(string); ok {
+		if t, err := time.Parse(time.RFC3339Nano, createdAt); err == nil {
+			if time.Since(t) > time.Minute {
+				logging.Warning("Discarding patch execution %s: created %v ago (too old)", executionID, time.Since(t))
+				return
+			}
+		}
+	}
+
 	executionType, _ := record["execution_type"].(string)
 	command, _ := record["command"].(string) // Can be "--dry-run" or empty
 
@@ -467,17 +541,16 @@ func (c *WebSocketClient) handleNewPatchExecution(record map[string]interface{})
 		return
 	}
 
-	// For dry_run, just log (actual dry_run info was returned to API caller)
-	if executionType == "dry_run" {
-		logging.Info("Dry run for script %s is available (execution: %s)", scriptID, executionID)
-		return
-	}
-
 	// Acquire semaphore to limit concurrent patch executions
 	c.patchSemaphore <- struct{}{}
 	defer func() { <-c.patchSemaphore }()
 
-	logging.Info("Processing patch execution %s with script_id %s", executionID, scriptID)
+	// Log what we're doing
+	if executionType == "dry_run" {
+		logging.Info("Processing dry_run for script %s (execution: %s)", scriptID, executionID)
+	} else {
+		logging.Info("Processing patch execution %s with script_id %s", executionID, scriptID)
+	}
 
 	// Download script from Supabase Storage
 	scriptContent, err := c.downloadPatchScript(scriptID)
@@ -1110,4 +1183,91 @@ func (w *WebSocketClient) updateConnectionStatus(connected bool) {
 	if resp.StatusCode != 200 {
 		logging.Debug("Connection status update returned non-200 status: %d", resp.StatusCode)
 	}
+}
+
+// updateInvestigationStatus updates the status and episode_id of an investigation
+func (c *WebSocketClient) updateInvestigationStatus(investigationID, status string) error {
+	return c.updateInvestigationStatusWithEpisode(investigationID, status, "")
+}
+
+// updateInvestigationStatusWithEpisode updates investigation status and stores episode_id
+func (c *WebSocketClient) updateInvestigationStatusWithEpisode(investigationID, status, episodeID string) error {
+	if investigationID == "" {
+		return fmt.Errorf("investigation_id is required")
+	}
+
+	url := fmt.Sprintf("%s/functions/v1/agent-database-proxy/update-investigation", c.supabaseURL)
+	logging.Info("[API_CALL] PATCH %s", url)
+
+	payload := map[string]interface{}{
+		"investigation_id": investigationID,
+		"status":           status,
+	}
+
+	if episodeID != "" {
+		payload["episode_id"] = episodeID
+	}
+
+	logging.Info("[API_CALL] Payload: %+v", payload)
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("PATCH", url, bytes.NewReader(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	logging.Info("[API_CALL] Response status: %d", resp.StatusCode)
+	if resp.StatusCode != 200 && resp.StatusCode != 204 {
+		body, _ := io.ReadAll(resp.Body)
+		logging.Error("[API_CALL] Error response: %s", string(body))
+		return fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	logging.Info("[API_CALL] Investigation %s status successfully updated to %s", investigationID, status)
+	return nil
+}
+
+// diagnoseIssueWithTracking wraps agent.DiagnoseIssueWithInvestigation and captures episode_id
+func (c *WebSocketClient) diagnoseIssueWithTracking(issue, investigationID string) error {
+	logging.Info("[DIAGNOSIS_TRACK] Starting diagnosis tracking for investigation %s", investigationID)
+	// Call the agent's DiagnoseIssueWithInvestigation for backend-initiated investigations
+	// This prevents creating duplicate investigations
+	logging.Info("[DIAGNOSIS_TRACK] Calling agent.DiagnoseIssueWithInvestigation for %s", investigationID)
+	err := c.agent.DiagnoseIssueWithInvestigation(issue)
+	if err != nil {
+		logging.Error("[DIAGNOSIS_TRACK] Diagnosis failed: %v", err)
+		return err
+	}
+	logging.Info("[DIAGNOSIS_TRACK] Diagnosis completed for %s", investigationID)
+
+	// After diagnosis completes, get the episode_id from the agent
+	episodeID := c.agent.GetEpisodeID()
+	logging.Info("[DIAGNOSIS_TRACK] Retrieved episode_id: %s for investigation %s", episodeID, investigationID)
+	if episodeID != "" {
+		// Update investigation with episode_id
+		logging.Info("[DIAGNOSIS_TRACK] Updating investigation %s with episode_id: %s", investigationID, episodeID)
+		if updateErr := c.updateInvestigationStatusWithEpisode(investigationID, "completed", episodeID); updateErr != nil {
+			logging.Error("[DIAGNOSIS_TRACK] Failed to update investigation %s with episode_id: %v", investigationID, updateErr)
+		}
+	} else {
+		logging.Warning("[DIAGNOSIS_TRACK] No episode_id returned, updating with completed status only")
+		if updateErr := c.updateInvestigationStatus(investigationID, "completed"); updateErr != nil {
+			logging.Error("[DIAGNOSIS_TRACK] Failed to update investigation %s status: %v", investigationID, updateErr)
+		}
+	}
+
+	return nil
 }

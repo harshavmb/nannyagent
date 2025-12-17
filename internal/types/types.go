@@ -303,6 +303,10 @@ type PatchExecution struct {
 // DiagnosticAgent interface for agent functionality needed by other packages
 type DiagnosticAgent interface {
 	DiagnoseIssue(issue string) error
+	DiagnoseIssueWithInvestigation(issue string) error
+	GetEpisodeID() string
+	SetInvestigationID(id string)
+	GetInvestigationID() string
 	// Exported method names to match what websocket client calls
 	ConvertEBPFProgramsToTraceSpecs(ebpfRequests []EBPFRequest) []ebpf.TraceSpec
 	ExecuteEBPFTraces(traceSpecs []ebpf.TraceSpec) []map[string]interface{}

@@ -257,7 +257,12 @@ func TestFindEnvFile(t *testing.T) {
 
 	// Should find .env in parent
 	found := findEnvFile()
-	if found != envPath {
+
+	// Normalize paths for comparison (macOS symlinks /var/folders to /private/var/folders)
+	foundReal, _ := filepath.EvalSymlinks(found)
+	wantReal, _ := filepath.EvalSymlinks(envPath)
+
+	if foundReal != wantReal {
 		t.Errorf("findEnvFile() = %v, want %v", found, envPath)
 	}
 }
