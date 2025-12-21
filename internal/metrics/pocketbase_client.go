@@ -30,15 +30,17 @@ func NewPocketBaseClient(baseURL string) *PocketBaseClient {
 }
 
 // IngestMetrics sends system metrics to PocketBase /api/agent endpoint
-func (pc *PocketBaseClient) IngestMetrics(accessToken string, systemMetrics *types.SystemMetrics) error {
-	logging.Debug("Ingesting metrics to PocketBase...")
+// agentID is required for upsert operation - metrics will be updated for same agent
+func (pc *PocketBaseClient) IngestMetrics(agentID string, accessToken string, systemMetrics *types.SystemMetrics) error {
+	logging.Debug("Ingesting metrics for agent %s", agentID)
 
 	// Convert SystemMetrics to PocketBaseSystemMetrics format
 	pbMetrics := pc.convertSystemMetrics(systemMetrics)
 
-	// Create the ingest request payload
+	// Create the ingest request payload with agent_id for upsert
 	payload := types.IngestMetricsRequest{
 		Action:        "ingest-metrics",
+		AgentID:       agentID,
 		SystemMetrics: pbMetrics,
 	}
 

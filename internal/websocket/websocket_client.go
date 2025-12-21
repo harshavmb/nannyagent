@@ -100,10 +100,15 @@ func NewWebSocketClient(agent types.DiagnosticAgent, authManager *auth.AuthManag
 		}
 	}
 
-	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
-	if supabaseURL == "" {
-		logging.Error("SUPABASE_PROJECT_URL environment variable is required")
+	// Get PocketBase URL (websocket support is optional)
+	pocketbaseURL := os.Getenv("POCKETBASE_URL")
+	if pocketbaseURL == "" {
+		pocketbaseURL = os.Getenv("API_BASE_URL")
 	}
+	if pocketbaseURL == "" {
+		pocketbaseURL = "http://localhost:8090"
+	}
+	logging.Debug("WebSocket client using base URL: %s", pocketbaseURL)
 
 	// Create metrics collector
 	metricsCollector := metrics.NewCollector("v2.0.0")
@@ -115,7 +120,7 @@ func NewWebSocketClient(agent types.DiagnosticAgent, authManager *auth.AuthManag
 		agentID:          agentID,
 		authManager:      authManager,
 		metricsCollector: metricsCollector,
-		supabaseURL:      supabaseURL,
+		supabaseURL:      pocketbaseURL,
 		ctx:              ctx,
 		cancel:           cancel,
 		patchSemaphore:   make(chan struct{}, 3), // Allow max 3 concurrent patch executions

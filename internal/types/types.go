@@ -232,6 +232,7 @@ type PocketBaseSystemMetrics struct {
 // IngestMetricsRequest - agent sends metrics to PocketBase
 type IngestMetricsRequest struct {
 	Action        string                 `json:"action"`         // "ingest-metrics"
+	AgentID       string                 `json:"agent_id"`       // Agent ID for upsert
 	Metrics       map[string]interface{} `json:"metrics"`        // System metrics (legacy)
 	SystemMetrics interface{}            `json:"system_metrics"` // System metrics (new format)
 }

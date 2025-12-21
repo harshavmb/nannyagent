@@ -144,7 +144,7 @@ func testAPIConnectivity(cfg *config.Config, accessToken string, agentID string)
 		return fmt.Errorf("failed to gather metrics: %w", err)
 	}
 
-	err = pbClient.IngestMetrics(accessToken, systemMetrics)
+	err = pbClient.IngestMetrics(agentID, accessToken, systemMetrics)
 	if err != nil {
 		return fmt.Errorf("metrics ingestion failed: %w", err)
 	}
@@ -309,15 +309,7 @@ func runStatusCommand() {
 		os.Exit(1)
 	}
 
-	err = pbClient.IngestMetrics(token.AccessToken, systemMetrics)
-	if err != nil {
-		fmt.Printf("✗ API error: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("✓ API connectivity OK")
-
-	// Check systemd service status
+	err = pbClient.IngestMetrics(agentID, token.AccessToken, systemMetrics)
 	if _, err := exec.LookPath("systemctl"); err == nil {
 		cmd := exec.Command("systemctl", "is-active", "nannyagent")
 		output, _ := cmd.Output()
@@ -537,7 +529,7 @@ func main() {
 		defer ticker.Stop()
 
 		// Send initial heartbeat
-		if err := sendHeartbeatToPocketBase(pbClient, token, metricsCollector); err != nil {
+		if err := sendHeartbeatToPocketBase(agentID, pbClient, token, metricsCollector); err != nil {
 			logging.Warning("Initial metrics ingestion failed: %v", err)
 		}
 
@@ -554,7 +546,7 @@ func main() {
 			}
 
 			// Send metrics
-			if err := sendHeartbeatToPocketBase(pbClient, token, metricsCollector); err != nil {
+			if err := sendHeartbeatToPocketBase(agentID, pbClient, token, metricsCollector); err != nil {
 				logging.Warning("Metrics ingestion failed: %v", err)
 
 				// If unauthorized, try to refresh token
@@ -568,7 +560,7 @@ func main() {
 					token = newToken
 
 					// Retry metrics with new token (silently)
-					if retryErr := sendHeartbeatToPocketBase(pbClient, token, metricsCollector); retryErr != nil {
+					if retryErr := sendHeartbeatToPocketBase(agentID, pbClient, token, metricsCollector); retryErr != nil {
 						logging.Warning("Retry metrics ingestion failed: %v", retryErr)
 					}
 				}
@@ -597,13 +589,14 @@ func main() {
 }
 
 // sendHeartbeatToPocketBase collects metrics and sends them to PocketBase
-func sendHeartbeatToPocketBase(pbClient *metrics.PocketBaseClient, token *types.AuthToken, collector *metrics.Collector) error {
+// agentID is passed to enable upsert functionality (update existing metrics instead of insert)
+func sendHeartbeatToPocketBase(agentID string, pbClient *metrics.PocketBaseClient, token *types.AuthToken, collector *metrics.Collector) error {
 	// Collect system metrics
 	systemMetrics, err := collector.GatherSystemMetrics()
 	if err != nil {
 		return fmt.Errorf("failed to gather system metrics: %w", err)
 	}
 
-	// Send metrics to PocketBase
-	return pbClient.IngestMetrics(token.AccessToken, systemMetrics)
+	// Send metrics to PocketBase with agent_id for upsert
+	return pbClient.IngestMetrics(agentID, token.AccessToken, systemMetrics)
 }
