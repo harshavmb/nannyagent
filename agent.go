@@ -51,17 +51,17 @@ type LinuxDiagnosticAgent struct {
 
 // NewLinuxDiagnosticAgent creates a new diagnostic agent
 func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
-	// Get Supabase project URL for TensorZero proxy
-	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
-	if supabaseURL == "" {
-		logging.Warning("SUPABASE_PROJECT_URL not set, TensorZero integration will not work")
+	// Get PocketBase URL for TensorZero proxy
+	pocketbaseURL := os.Getenv("POCKETBASE_URL")
+	if pocketbaseURL == "" {
+		pocketbaseURL = "http://localhost:8090"
 	}
 
 	// Default model for diagnostic and healing
 	model := "tensorzero::function_name::diagnose_and_heal"
 
 	agent := &LinuxDiagnosticAgent{
-		client:   nil, // Not used - we use direct HTTP to Supabase proxy
+		client:   nil, // Not used - we use direct HTTP to PocketBase proxy
 		model:    model,
 		executor: executor.NewCommandExecutor(10 * time.Second), // 10 second timeout for commands
 		config:   DefaultAgentConfig(),                          // Default concurrent execution config
@@ -76,17 +76,17 @@ func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
 
 // NewLinuxDiagnosticAgentWithAuth creates a new diagnostic agent with authentication
 func NewLinuxDiagnosticAgentWithAuth(authManager interface{}) *LinuxDiagnosticAgent {
-	// Get Supabase project URL for TensorZero proxy
-	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
-	if supabaseURL == "" {
-		logging.Warning("SUPABASE_PROJECT_URL not set, TensorZero integration will not work")
+	// Get PocketBase URL for TensorZero proxy
+	pocketbaseURL := os.Getenv("POCKETBASE_URL")
+	if pocketbaseURL == "" {
+		pocketbaseURL = "http://localhost:8090"
 	}
 
 	// Default model for diagnostic and healing
 	model := "tensorzero::function_name::diagnose_and_heal"
 
 	agent := &LinuxDiagnosticAgent{
-		client:      nil, // Not used - we use direct HTTP to Supabase proxy
+		client:      nil, // Not used - we use direct HTTP to PocketBase proxy
 		model:       model,
 		executor:    executor.NewCommandExecutor(10 * time.Second), // 10 second timeout for commands
 		config:      DefaultAgentConfig(),                          // Default concurrent execution config
@@ -348,14 +348,15 @@ func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatComp
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Get Supabase URL
-	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
-	if supabaseURL == "" {
-		return nil, fmt.Errorf("SUPABASE_PROJECT_URL not set")
+	// Get PocketBase URL
+	pocketbaseURL := os.Getenv("POCKETBASE_URL")
+	if pocketbaseURL == "" {
+		pocketbaseURL = "http://localhost:8090"
 	}
 
-	// Create HTTP request to TensorZero proxy (includes OpenAI-compatible path)
-	endpoint := fmt.Sprintf("%s/functions/v1/tensorzero-proxy/openai/v1/chat/completions", supabaseURL)
+	// Create HTTP request to TensorZero proxy via PocketBase
+	// PocketBase routes TensorZero requests to /api/tensorzero endpoint
+	endpoint := fmt.Sprintf("%s/api/tensorzero", pocketbaseURL)
 	logging.Debug("Calling TensorZero proxy at: %s", endpoint)
 	logging.Info("[TENSORZERO_API] POST %s with episodeID: %s", endpoint, episodeID)
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(requestBody))

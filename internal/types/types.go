@@ -468,3 +468,47 @@ type DiagnosticAgent interface {
 	SendRequest(messages []openai.ChatCompletionMessage) (*openai.ChatCompletionResponse, error)
 	ExecuteCommand(cmd Command) CommandResult
 }
+
+// Investigation Status
+type InvestigationStatus string
+
+const (
+	InvestigationStatusPending    InvestigationStatus = "pending"
+	InvestigationStatusInProgress InvestigationStatus = "in_progress"
+	InvestigationStatusCompleted  InvestigationStatus = "completed"
+	InvestigationStatusFailed     InvestigationStatus = "failed"
+)
+
+// InvestigationRequest is sent by agent to initiate investigation
+type InvestigationRequest struct {
+	AgentID  string `json:"agent_id" validate:"required,uuid4"`
+	Issue    string `json:"issue" validate:"required,min=10,max=2000"`
+	Priority string `json:"priority" validate:"omitempty,oneof=low medium high"` // Defaults to medium
+}
+
+// InvestigationResponse is returned when investigation is created or retrieved
+type InvestigationResponse struct {
+	ID             string                 `json:"id"`
+	UserID         string                 `json:"user_id"`
+	AgentID        string                 `json:"agent_id"`
+	EpisodeID      string                 `json:"episode_id"`
+	UserPrompt     string                 `json:"user_prompt"`
+	Priority       string                 `json:"priority"`
+	Status         InvestigationStatus    `json:"status"`
+	ResolutionPlan string                 `json:"resolution_plan"` // AI-generated resolution from TensorZero
+	InitiatedAt    time.Time              `json:"initiated_at"`
+	CompletedAt    *time.Time             `json:"completed_at"`
+	CreatedAt      time.Time              `json:"created_at"`
+	UpdatedAt      time.Time              `json:"updated_at"`
+	Metadata       map[string]interface{} `json:"metadata"`
+	InferenceCount int                    `json:"inference_count"` // Count from ClickHouse
+}
+
+// InvestigationUpdateRequest is used to update investigation status
+type InvestigationUpdateRequest struct {
+	Status         InvestigationStatus    `json:"status"`
+	ResolutionPlan string                 `json:"resolution_plan,omitempty"`
+	CompletedAt    *time.Time             `json:"completed_at,omitempty"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	EpisodeID      string                 `json:"episode_id,omitempty"`
+}
