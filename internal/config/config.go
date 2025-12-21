@@ -12,8 +12,11 @@ import (
 )
 
 type Config struct {
-	// Supabase Configuration
+	// Supabase Configuration (deprecated, use PocketBase instead)
 	SupabaseProjectURL string `yaml:"supabase_project_url"`
+
+	// PocketBase Configuration (primary)
+	APIBaseURL string `yaml:"api_base_url"`
 
 	// Edge Function Endpoints (auto-generated from SupabaseProjectURL)
 	DeviceAuthURL string `yaml:"device_auth_url"`
@@ -94,6 +97,15 @@ func LoadConfig() (*Config, error) {
 	}
 
 	// Load from environment variables (highest priority - overrides file config)
+	// PocketBase configuration (primary)
+	if url := os.Getenv("POCKETBASE_URL"); url != "" {
+		config.APIBaseURL = url
+	}
+	if url := os.Getenv("API_BASE_URL"); url != "" {
+		config.APIBaseURL = url
+	}
+
+	// Supabase configuration (deprecated)
 	if url := os.Getenv("SUPABASE_PROJECT_URL"); url != "" {
 		config.SupabaseProjectURL = url
 	}
@@ -144,15 +156,16 @@ func loadYAMLConfig(config *Config, path string) error {
 
 // Validate checks if all required configuration is present
 func (c *Config) Validate() error {
-	// Only SUPABASE_PROJECT_URL is required
-	// DeviceAuthURL and AgentAuthURL are auto-generated from it
-	if c.SupabaseProjectURL == "" {
-		return fmt.Errorf("missing required environment variable: SUPABASE_PROJECT_URL")
+	// Either PocketBase or Supabase URL is required
+	if c.APIBaseURL == "" && c.SupabaseProjectURL == "" {
+		return fmt.Errorf("missing required configuration: either API_BASE_URL (for PocketBase) or SUPABASE_PROJECT_URL (legacy) must be set")
 	}
 
-	// Ensure auto-generated URLs are present (should be set by LoadConfig)
-	if c.DeviceAuthURL == "" || c.AgentAuthURL == "" {
-		return fmt.Errorf("failed to generate API endpoints from SUPABASE_PROJECT_URL")
+	// If using Supabase (legacy), ensure auto-generated URLs are present
+	if c.APIBaseURL == "" && c.SupabaseProjectURL != "" {
+		if c.DeviceAuthURL == "" || c.AgentAuthURL == "" {
+			return fmt.Errorf("failed to generate API endpoints from SUPABASE_PROJECT_URL")
+		}
 	}
 
 	return nil
