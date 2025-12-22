@@ -87,9 +87,11 @@ func (pc *PocketBaseClient) IngestMetrics(agentID string, accessToken string, sy
 		logging.Warning("Could not parse metrics response: %v", err)
 		// Still consider it a success if status was OK
 		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
-			logging.Info("Metrics ingested successfully")
+			logging.Debug("Metrics ingested successfully (unparsed response)")
 			return nil
 		}
+		// If status is not OK and response didn't parse, it's an error
+		return fmt.Errorf("metrics ingestion failed with status %d: invalid response format", resp.StatusCode)
 	}
 
 	if !metricsResp.Success {
@@ -97,7 +99,7 @@ func (pc *PocketBaseClient) IngestMetrics(agentID string, accessToken string, sy
 		return fmt.Errorf("metrics ingestion failed: %s", metricsResp.Message)
 	}
 
-	logging.Info("Metrics ingested successfully")
+	logging.Debug("Metrics ingested successfully for agent %s", agentID)
 	return nil
 }
 

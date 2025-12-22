@@ -354,10 +354,10 @@ func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatComp
 		pocketbaseURL = "http://localhost:8090"
 	}
 
-	// Create HTTP request to TensorZero proxy via PocketBase
-	// PocketBase routes TensorZero requests to /api/tensorzero endpoint
-	endpoint := fmt.Sprintf("%s/api/tensorzero", pocketbaseURL)
-	logging.Debug("Calling TensorZero proxy at: %s", endpoint)
+	// Create HTTP request to investigations endpoint
+	// PocketBase routes requests to /api/investigations for TensorZero integration
+	endpoint := fmt.Sprintf("%s/api/investigations", pocketbaseURL)
+	logging.Debug("Calling investigations endpoint at: %s", endpoint)
 	logging.Info("[TENSORZERO_API] POST %s with episodeID: %s", endpoint, episodeID)
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(requestBody))
 	if err != nil {
@@ -368,16 +368,23 @@ func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatComp
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	// Add authentication if auth manager is available (same pattern as investigation_server.go)
+	// Add authentication - REQUIRED for /api/investigations endpoint
 	if a.authManager != nil {
 		// The authManager should be *auth.AuthManager, so let's use the exact same pattern
 		if authMgr, ok := a.authManager.(interface {
 			LoadToken() (*types.AuthToken, error)
 		}); ok {
-			if authToken, err := authMgr.LoadToken(); err == nil && authToken != nil {
+			if authToken, err := authMgr.LoadToken(); err == nil && authToken != nil && authToken.AccessToken != "" {
 				req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", authToken.AccessToken))
+				logging.Debug("[TENSORZERO_API] Authorization header set with token")
+			} else {
+				logging.Warning("[TENSORZERO_API] Failed to load auth token for authorization header")
 			}
+		} else {
+			logging.Warning("[TENSORZERO_API] Auth manager does not support LoadToken interface")
 		}
+	} else {
+		logging.Warning("[TENSORZERO_API] No auth manager available for authorization header")
 	}
 
 	// Send request with retry logic (up to 5 attempts with longer timeout)
