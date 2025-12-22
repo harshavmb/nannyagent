@@ -29,9 +29,6 @@ type Client struct {
 
 // NewClient creates a new Realtime client
 func NewClient(baseURL, accessToken string, handler InvestigationHandler) *Client {
-	if baseURL == "" {
-		baseURL = "http://localhost:8090"
-	}
 	return &Client{
 		baseURL:     baseURL,
 		accessToken: accessToken,

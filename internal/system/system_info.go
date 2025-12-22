@@ -49,36 +49,18 @@ func GatherSystemInfo() *SystemInfo {
 
 	if result := executor.Execute(types.Command{ID: "cores", Command: "nproc"}); result.ExitCode == 0 {
 		info.CPUCores = strings.TrimSpace(result.Output)
-	} else if runtime.GOOS == "darwin" {
-		if result := executor.Execute(types.Command{ID: "cores_mac", Command: "sysctl -n hw.ncpu"}); result.ExitCode == 0 {
-			info.CPUCores = strings.TrimSpace(result.Output)
-		}
 	}
 
 	if result := executor.Execute(types.Command{ID: "memory", Command: "free -h | grep Mem | awk '{print $2}'"}); result.ExitCode == 0 {
 		info.Memory = strings.TrimSpace(result.Output)
-	} else if runtime.GOOS == "darwin" {
-		if result := executor.Execute(types.Command{ID: "memory_mac", Command: "sysctl -n hw.memsize | awk '{print $1/1024/1024/1024 \"G\"}'"}); result.ExitCode == 0 {
-			info.Memory = strings.TrimSpace(result.Output)
-		}
 	}
 
 	if result := executor.Execute(types.Command{ID: "uptime", Command: "uptime -p"}); result.ExitCode == 0 {
 		info.Uptime = strings.TrimSpace(result.Output)
-	} else {
-		// Fallback for systems without uptime -p (like macOS or some Linux)
-		if result := executor.Execute(types.Command{ID: "uptime_raw", Command: "uptime"}); result.ExitCode == 0 {
-			info.Uptime = strings.TrimSpace(result.Output)
-		}
 	}
 
 	if result := executor.Execute(types.Command{ID: "load", Command: "uptime | awk -F'load average:' '{print $2}' | xargs"}); result.ExitCode == 0 && result.Output != "" {
 		info.LoadAverage = strings.TrimSpace(result.Output)
-	} else {
-		// macOS uses "load averages:"
-		if result := executor.Execute(types.Command{ID: "load_mac", Command: "uptime | awk -F'load averages:' '{print $2}' | xargs"}); result.ExitCode == 0 {
-			info.LoadAverage = strings.TrimSpace(result.Output)
-		}
 	}
 
 	if result := executor.Execute(types.Command{ID: "disk", Command: "df -h / | tail -1 | awk '{print \"Root: \" $3 \"/\" $2 \" (\" $5 \" used)\"}'"}); result.ExitCode == 0 {

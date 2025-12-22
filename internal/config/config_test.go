@@ -50,33 +50,16 @@ debug: true
 }
 
 func TestLoadConfig_EnvFile(t *testing.T) {
-	// Create temporary .env file
-	tmpDir := t.TempDir()
-	envPath := filepath.Join(tmpDir, "config.env")
+	// This test now verifies that we can load config purely from environment variables
+	// without relying on a .env file loader
 
-	envContent := `
-API_BASE_URL=https://env.pocketbase.io
-TOKEN_PATH=/tmp/env_token.json
-NANNYAI_PORTAL_URL=https://env.nannyai.dev
-DEBUG=true
-`
-	err := os.WriteFile(envPath, []byte(envContent), 0644)
-	if err != nil {
-		t.Fatalf("Failed to create test env file: %v", err)
-	}
-
-	// Change to temp directory so findEnvFile won't find project .env
-	origDir, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origDir) }()
-	_ = os.Chdir(tmpDir)
-
-	// Set environment variables by loading the file
-	_ = os.Setenv("API_BASE_URL", "https://env.pocketbase.io")
+	// Set environment variables
+	_ = os.Setenv("POCKETBASE_URL", "https://env.pocketbase.io")
 	_ = os.Setenv("TOKEN_PATH", "/tmp/env_token.json")
 	_ = os.Setenv("NANNYAI_PORTAL_URL", "https://env.nannyai.dev")
 	_ = os.Setenv("DEBUG", "true")
 	defer func() {
-		_ = os.Unsetenv("API_BASE_URL")
+		_ = os.Unsetenv("POCKETBASE_URL")
 		_ = os.Unsetenv("TOKEN_PATH")
 		_ = os.Unsetenv("NANNYAI_PORTAL_URL")
 		_ = os.Unsetenv("DEBUG")
@@ -86,7 +69,7 @@ DEBUG=true
 	config := DefaultConfig
 
 	// Manually apply env vars (simulating LoadConfig behavior)
-	if url := os.Getenv("API_BASE_URL"); url != "" {
+	if url := os.Getenv("POCKETBASE_URL"); url != "" {
 		config.APIBaseURL = url
 	}
 	if tokenPath := os.Getenv("TOKEN_PATH"); tokenPath != "" {
@@ -155,9 +138,9 @@ portal_url: https://yaml.nannyai.dev
 		t.Fatalf("Failed to create test config: %v", err)
 	}
 
-	// Set environment variable for API_BASE_URL (should override YAML)
-	_ = os.Setenv("API_BASE_URL", "https://env.pocketbase.io")
-	defer os.Unsetenv("API_BASE_URL")
+	// Set environment variable for POCKETBASE_URL (should override YAML)
+	_ = os.Setenv("POCKETBASE_URL", "https://env.pocketbase.io")
+	defer os.Unsetenv("POCKETBASE_URL")
 
 	// Load config
 	config := DefaultConfig
@@ -167,7 +150,7 @@ portal_url: https://yaml.nannyai.dev
 	}
 
 	// Manually apply env override
-	if url := os.Getenv("API_BASE_URL"); url != "" {
+	if url := os.Getenv("POCKETBASE_URL"); url != "" {
 		config.APIBaseURL = url
 	}
 
@@ -183,38 +166,10 @@ portal_url: https://yaml.nannyai.dev
 }
 
 func TestFindEnvFile(t *testing.T) {
-	// Create temporary directory structure
-	tmpDir := t.TempDir()
-	subDir := filepath.Join(tmpDir, "subdir")
-	err := os.Mkdir(subDir, 0700)
-	if err != nil {
-		t.Fatalf("Failed to create subdirectory: %v", err)
-	}
-
-	// Create .env in parent directory
-	envPath := filepath.Join(tmpDir, ".env")
-	err = os.WriteFile(envPath, []byte("TEST=value"), 0644)
-	if err != nil {
-		t.Fatalf("Failed to create .env: %v", err)
-	}
-
-	// Change to subdirectory
-	origDir, _ := os.Getwd()
-	defer func() { _ = os.Chdir(origDir) }()
-	err = os.Chdir(subDir)
-	if err != nil {
-		t.Fatalf("Failed to change directory: %v", err)
-	}
-
-	// Should find .env in parent
+	// findEnvFile is removed, so this test is no longer relevant or should test that it returns empty
 	found := findEnvFile()
-
-	// Normalize paths for comparison (macOS symlinks /var/folders to /private/var/folders)
-	foundReal, _ := filepath.EvalSymlinks(found)
-	wantReal, _ := filepath.EvalSymlinks(envPath)
-
-	if foundReal != wantReal {
-		t.Errorf("findEnvFile() = %v, want %v", found, envPath)
+	if found != "" {
+		t.Errorf("findEnvFile() = %v, want empty string", found)
 	}
 }
 
@@ -256,20 +211,9 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestLoadConfig_SystemEnvFileExists(t *testing.T) {
-	// Test that we attempt to load /etc/nannyagent/config.env
-	// This is an integration-style test that verifies the file loading logic
-
-	// We can't actually create /etc/nannyagent in tests, but we can verify
-	// the loading logic handles non-existent files gracefully
-
-	tmpDir := t.TempDir()
-	nonExistentPath := filepath.Join(tmpDir, "nonexistent.env")
-
-	// Should not panic or error when file doesn't exist
-	_, err := os.Stat(nonExistentPath)
-	if !os.IsNotExist(err) {
-		t.Errorf("Expected file to not exist, but got: %v", err)
-	}
+	// This test is no longer relevant as we don't load system env files
+	// But we can keep it as a placeholder or remove it.
+	// For now, let's just make it pass trivially or remove it.
 }
 
 func TestLoadConfig_DebugEnvironmentVariations(t *testing.T) {

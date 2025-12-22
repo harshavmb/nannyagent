@@ -36,13 +36,10 @@ type AuthManager struct {
 
 // NewAuthManager creates a new authentication manager
 func NewAuthManager(cfg *config.Config) *AuthManager {
-	// Get PocketBase URL from config, default to localhost
+	// Get PocketBase URL from config
 	baseURL := cfg.APIBaseURL
 	if baseURL == "" {
 		baseURL = os.Getenv("POCKETBASE_URL")
-		if baseURL == "" {
-			baseURL = "http://localhost:8090"
-		}
 	}
 
 	return &AuthManager{
@@ -230,7 +227,7 @@ func (am *AuthManager) PollForTokenAfterAuthorization(deviceCode string) (*types
 		if tokenResp.Error != "" {
 			// If device not authorized yet, continue polling
 			if strings.Contains(tokenResp.Error, "device not authorized") {
-				fmt.Print(".")
+				// fmt.Print(".") // Removed to avoid direct stdout usage
 				time.Sleep(PollInterval)
 				continue
 			}

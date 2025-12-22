@@ -184,9 +184,6 @@ func runRegisterCommand() {
 		logging.Warning("Could not load configuration, using defaults: %v", err)
 		cfg = &config.DefaultConfig
 		cfg.APIBaseURL = os.Getenv("POCKETBASE_URL")
-		if cfg.APIBaseURL == "" {
-			cfg.APIBaseURL = "http://localhost:8090"
-		}
 	}
 
 	// Ensure we have a PocketBase URL
@@ -272,7 +269,7 @@ func runStatusCommand() {
 	// Show API endpoint
 	apiURL := cfg.APIBaseURL
 	if apiURL == "" {
-		apiURL = fmt.Sprintf(os.Getenv("POCKETBASE_URL"), " (default")
+		apiURL = os.Getenv("POCKETBASE_URL")
 	}
 	fmt.Printf("✓ API Endpoint: %s\n", apiURL)
 
@@ -538,69 +535,10 @@ func main() {
 
 		// Create and start the realtime client
 		// Use POCKETBASE_URL from env or default
-		pbURL := os.Getenv("POCKETBASE_URL")
+		pbURL := cfg.APIBaseURL
 		realtimeClient := realtime.NewClient(pbURL, accessToken, handler)
 		realtimeClient.Start()
 	}()
-
-	// // Start WebSocket client for backend communications and investigations
-	// wsClient := websocket.NewWebSocketClient(applicationAgent, authManager)
-	// go func() {
-	// 	defer func() {
-	// 		if r := recover(); r != nil {
-	// 			logging.Error("WebSocket client panicked: %v", r)
-	// 		}
-	// 	}()
-	// 	if err := wsClient.Start(); err != nil {
-	// 		logging.Error("WebSocket client error: %v", err)
-	// 	}
-	// }()
-
-	// // Start background metrics collection in a goroutine
-	// go func() {
-	// 	ticker := time.NewTicker(time.Duration(cfg.MetricsInterval) * time.Second)
-	// 	defer ticker.Stop()
-
-	// 	// Send initial heartbeat
-	// 	if err := sendHeartbeatToPocketBase(agentID, pbClient, token, metricsCollector); err != nil {
-	// 		logging.Warning("Initial metrics ingestion failed: %v", err)
-	// 	}
-
-	// 	// Main metrics collection loop
-	// 	for range ticker.C {
-	// 		// Check if token needs refresh
-	// 		if authManager.IsTokenExpired(token) {
-	// 			newToken, refreshErr := authManager.EnsureAuthenticated()
-	// 			if refreshErr != nil {
-	// 				logging.Warning("Token refresh failed: %v", refreshErr)
-	// 				continue
-	// 			}
-	// 			token = newToken
-	// 		}
-
-	// 		// Send metrics
-	// 		if err := sendHeartbeatToPocketBase(agentID, pbClient, token, metricsCollector); err != nil {
-	// 			logging.Warning("Metrics ingestion failed: %v", err)
-
-	// 			// If unauthorized, try to refresh token
-	// 			if err.Error() == "metrics ingestion failed: unauthorized - token may be expired" {
-	// 				logging.Debug("Unauthorized, attempting token refresh...")
-	// 				newToken, refreshErr := authManager.EnsureAuthenticated()
-	// 				if refreshErr != nil {
-	// 					logging.Warning("Token refresh failed: %v", refreshErr)
-	// 					continue
-	// 				}
-	// 				token = newToken
-
-	// 				// Retry metrics with new token (silently)
-	// 				if retryErr := sendHeartbeatToPocketBase(agentID, pbClient, token, metricsCollector); retryErr != nil {
-	// 					logging.Warning("Retry metrics ingestion failed: %v", retryErr)
-	// 				}
-	// 			}
-	// 		}
-	// 		// No logging for successful metrics - they should be silent
-	// 	}
-	// }()
 
 	// Check if running in daemon mode
 	if *daemonFlag {
@@ -620,16 +558,3 @@ func main() {
 	// Start the interactive diagnostic session (blocking)
 	runInteractiveDiagnostics(diagAgent)
 }
-
-// // sendHeartbeatToPocketBase collects metrics and sends them to PocketBase
-// // agentID is passed to enable upsert functionality (update existing metrics instead of insert)
-// func sendHeartbeatToPocketBase(agentID string, pbClient *metrics.PocketBaseClient, token *types.AuthToken, collector *metrics.Collector) error {
-// 	// Collect system metrics
-// 	systemMetrics, err := collector.GatherSystemMetrics()
-// 	if err != nil {
-// 		return fmt.Errorf("failed to gather system metrics: %w", err)
-// 	}
-
-// 	// Send metrics to PocketBase with agent_id for upsert
-// 	return pbClient.IngestMetrics(agentID, token.AccessToken, systemMetrics)
-// }

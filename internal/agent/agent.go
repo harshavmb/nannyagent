@@ -52,12 +52,6 @@ type LinuxDiagnosticAgent struct {
 
 // NewLinuxDiagnosticAgent creates a new diagnostic agent
 func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
-	// Get PocketBase URL for TensorZero proxy
-	pocketbaseURL := os.Getenv("POCKETBASE_URL")
-	if pocketbaseURL == "" {
-		pocketbaseURL = "http://localhost:8090"
-	}
-
 	// Default model for diagnostic and healing
 	model := "tensorzero::function_name::diagnose_and_heal"
 
@@ -77,12 +71,6 @@ func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
 
 // NewLinuxDiagnosticAgentWithAuth creates a new diagnostic agent with authentication
 func NewLinuxDiagnosticAgentWithAuth(authManager interface{}) *LinuxDiagnosticAgent {
-	// Get PocketBase URL for TensorZero proxy
-	pocketbaseURL := os.Getenv("POCKETBASE_URL")
-	if pocketbaseURL == "" {
-		pocketbaseURL = "http://localhost:8090"
-	}
-
 	// Default model for diagnostic and healing
 	model := "tensorzero::function_name::diagnose_and_heal"
 
@@ -152,9 +140,6 @@ func (a *LinuxDiagnosticAgent) createInvestigation(issue string) (string, error)
 
 	// Get PocketBase URL
 	pocketbaseURL := os.Getenv("POCKETBASE_URL")
-	if pocketbaseURL == "" {
-		pocketbaseURL = "http://localhost:8090"
-	}
 
 	// Use investigations client
 	client := investigations.NewInvestigationsClient(pocketbaseURL)
@@ -406,9 +391,6 @@ func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatComp
 
 	// Get PocketBase URL
 	pocketbaseURL := os.Getenv("POCKETBASE_URL")
-	if pocketbaseURL == "" {
-		pocketbaseURL = "http://localhost:8090"
-	}
 
 	// Create HTTP request to investigations endpoint
 	// PocketBase routes requests to /api/investigations for TensorZero integration

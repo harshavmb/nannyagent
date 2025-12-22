@@ -3,11 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"nannyagentv2/internal/logging"
 
-	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,16 +31,13 @@ var DefaultConfig = Config{
 	Debug:           false,
 }
 
-// LoadConfig loads configuration from YAML or .env file
+// LoadConfig loads configuration from YAML or environment variables
 func LoadConfig() (*Config, error) {
 	config := DefaultConfig
 
 	// Priority order for loading configuration:
 	// 1. /etc/nannyagent/config.yaml (system-wide YAML)
-	// 2. /etc/nannyagent/config.env (system-wide .env for backward compatibility)
-	// 3. ./config.yaml (local YAML for development)
-	// 4. ./.env file (local .env for development)
-	// 5. Environment variables (highest priority overrides)
+	// 2. Environment variables (highest priority overrides)
 
 	configLoaded := false
 
@@ -52,41 +47,8 @@ func LoadConfig() (*Config, error) {
 		configLoaded = true
 	}
 
-	// Try system-wide .env config (backward compatibility)
 	if !configLoaded {
-		if _, err := os.Stat("/etc/nannyagent/config.env"); err == nil {
-			if err := godotenv.Load("/etc/nannyagent/config.env"); err != nil {
-				logging.Warning("Could not load /etc/nannyagent/config.env: %v", err)
-			} else {
-				logging.Info("Loaded configuration from /etc/nannyagent/config.env")
-				configLoaded = true
-			}
-		}
-	}
-
-	// Try local YAML config
-	if !configLoaded {
-		if err := loadYAMLConfig(&config, "config.yaml"); err == nil {
-			logging.Info("Loaded configuration from ./config.yaml")
-			configLoaded = true
-		}
-	}
-
-	// If system config not found, try local .env file
-	if !configLoaded {
-		envFile := findEnvFile()
-		if envFile != "" {
-			if err := godotenv.Load(envFile); err != nil {
-				logging.Warning("Could not load .env file from %s: %v", envFile, err)
-			} else {
-				logging.Info("Loaded configuration from %s", envFile)
-				configLoaded = true
-			}
-		}
-	}
-
-	if !configLoaded {
-		logging.Warning("No configuration file found. Using environment variables only.")
+		logging.Warning("No configuration file found at /etc/nannyagent/config.yaml. Using environment variables only.")
 	}
 
 	// Load from environment variables (highest priority - overrides file config)
@@ -94,6 +56,7 @@ func LoadConfig() (*Config, error) {
 	if url := os.Getenv("POCKETBASE_URL"); url != "" {
 		config.APIBaseURL = url
 	}
+	// Support API_BASE_URL for backward compatibility if needed, or remove if strict
 	if url := os.Getenv("API_BASE_URL"); url != "" {
 		config.APIBaseURL = url
 	}
@@ -141,26 +104,8 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// findEnvFile looks for .env file in current directory and parent directories
+// findEnvFile is removed as we no longer support .env files
 func findEnvFile() string {
-	dir, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-
-	for {
-		envPath := filepath.Join(dir, ".env")
-		if _, err := os.Stat(envPath); err == nil {
-			return envPath
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-
 	return ""
 }
 
