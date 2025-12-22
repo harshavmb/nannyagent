@@ -141,22 +141,8 @@ func (w *WebSocketClient) Start() error {
 	// Start message reading loop - this will handle reconnection if needed
 	go w.handleMessages()
 
-	// Start heartbeat
-	go w.startHeartbeat()
-
 	// WebSocket client started (will connect immediately or reconnect)
 	return nil
-}
-
-// Stop closes the WebSocket connection
-func (c *WebSocketClient) Stop() {
-	// Update database that we're disconnecting
-	c.updateConnectionStatus(false)
-
-	c.cancel()
-	if c.conn != nil {
-		_ = c.conn.Close()
-	}
 }
 
 // getAuthToken retrieves authentication token
@@ -259,9 +245,6 @@ func (c *WebSocketClient) handleMessages() {
 			c.consecutiveFailures = 0
 
 			switch message.Type {
-			case "heartbeat_ack":
-				// Heartbeat acknowledged
-
 			case "investigation_task":
 				// Received investigation task
 				go c.handleInvestigationTask(message.Data)
@@ -269,17 +252,6 @@ func (c *WebSocketClient) handleMessages() {
 			case "patch_execution_task":
 				// Received patch execution task
 				go c.handlePatchExecutionTask(message.Data)
-
-			case "task_result_ack":
-				// Task result acknowledged
-
-			case "broadcast":
-				// Broadcast messages may contain postgres_changes data
-				go c.handleDatabaseChange(message.Data)
-
-			case "postgres_changes":
-				// Direct database change notification (alternative format)
-				go c.handleDatabaseChange(message.Data)
 			}
 		}
 	}
@@ -374,110 +346,6 @@ func (c *WebSocketClient) handleInvestigationTask(data interface{}) {
 
 	// Send result back
 	c.sendTaskResult(taskResult)
-}
-
-// handleDatabaseChange processes PostgreSQL change notifications from Realtime
-func (c *WebSocketClient) handleDatabaseChange(data interface{}) {
-	dataMap, ok := data.(map[string]interface{})
-	if !ok {
-		return
-	}
-
-	payload, ok := dataMap["payload"].(map[string]interface{})
-	if !ok {
-		return
-	}
-
-	eventData, ok := payload["data"].(map[string]interface{})
-	if !ok {
-		return
-	}
-
-	table, ok := eventData["table"].(string)
-	if !ok {
-		return
-	}
-
-	logging.Debug("Received Realtime event for table: %s", table)
-
-	eventType, ok := eventData["eventType"].(string)
-	if !ok {
-		return
-	}
-
-	// Only process INSERT events
-	if eventType != "INSERT" {
-		return
-	}
-
-	newRecord, ok := eventData["new"].(map[string]interface{})
-	if !ok {
-		return
-	}
-
-	switch table {
-	case "investigations":
-		// Process new investigation from investigations table
-		c.handleNewInvestigation(newRecord)
-		return
-
-	case "patch_executions":
-		c.handleNewPatchExecution(newRecord)
-		return
-	}
-}
-
-// handleNewInvestigation processes a newly inserted investigation record from Realtime
-// This is triggered when a new investigation is inserted into the database
-func (c *WebSocketClient) handleNewInvestigation(record map[string]interface{}) {
-	investigationID, _ := record["investigation_id"].(string)
-	if investigationID == "" {
-		// Try to get id field instead
-		idField, _ := record["id"].(string)
-		investigationID = idField
-	}
-
-	// Extract issue from investigations table
-	issue, _ := record["issue"].(string)
-
-	if issue == "" {
-		logging.Error("No issue field in investigation record")
-		return
-	}
-
-	// Check if this was initiated by the agent (don't re-process agent-initiated ones)
-	initiatedBy, _ := record["initiated_by"].(string)
-	logging.Info("[REALTIME] Received investigation event - ID: %s, initiated_by: %s, issue: %s", investigationID, initiatedBy, issue)
-	if initiatedBy == "agent" {
-		logging.Warning("[REALTIME] Ignoring investigation %s initiated by agent itself (Realtime event)", investigationID)
-		return
-	}
-
-	logging.Info("[REALTIME] Investigation started for issue: %s (from Realtime INSERT)", issue)
-
-	// Update investigation status to in_progress
-	logging.Info("[STATUS_UPDATE] Updating investigation %s status to in_progress", investigationID)
-	if err := c.updateInvestigationStatus(investigationID, "in_progress"); err != nil {
-		logging.Error("[STATUS_UPDATE] Failed to update investigation %s status to in_progress: %v", investigationID, err)
-	}
-
-	// For portal-initiated investigations, pass the investigation_id to the agent
-	// The agent will then pass it to tensorzero-proxy in the request metadata
-	// This tells tensorzero-proxy to UPDATE this investigation instead of creating a duplicate
-	c.agent.SetInvestigationID(investigationID) // Use backend-aware diagnosis method for Realtime-triggered investigations
-	logging.Info("[DIAGNOSIS] Starting diagnoseIssueWithTracking for investigation %s", investigationID)
-	err := c.diagnoseIssueWithTracking(issue, investigationID)
-
-	if err != nil {
-		logging.Error("[DIAGNOSIS] TensorZero investigation %s failed: %v", investigationID, err)
-		// Update status to failed
-		logging.Info("[STATUS_UPDATE] Updating investigation %s status to failed", investigationID)
-		_ = c.updateInvestigationStatus(investigationID, "failed")
-		return
-	}
-
-	logging.Info("[DIAGNOSIS] TensorZero investigation %s completed successfully!", investigationID)
-	// Status is already updated to completed by diagnoseIssueWithTracking
 }
 
 // handlePatchExecutionTask processes a patch execution task message (direct from WebSocket)
@@ -935,58 +803,6 @@ func (c *WebSocketClient) sendTaskResult(result TaskResult) {
 
 	if err := c.conn.WriteJSON(message); err != nil {
 		logging.Error("Error sending task result: %v", err)
-	}
-}
-
-// startHeartbeat sends periodic heartbeat messages
-func (c *WebSocketClient) startHeartbeat() {
-	ticker := time.NewTicker(30 * time.Second) // Heartbeat every 30 seconds
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-c.ctx.Done():
-			return
-		case <-ticker.C:
-			heartbeat := WebSocketMessage{
-				Type: "heartbeat",
-				Data: HeartbeatData{
-					AgentID:   c.agentID,
-					Timestamp: time.Now(),
-					Version:   "v2.0.0",
-				},
-			}
-
-			c.writeMutex.Lock()
-
-			c.connMutex.RLock()
-			conn := c.conn
-			c.connMutex.RUnlock()
-			if conn == nil {
-				c.writeMutex.Unlock()
-				// Connection lost - wait and retry instead of returning
-				// The connection will be re-established by attemptReconnection
-				c.consecutiveFailures++
-				time.Sleep(5 * time.Second)
-				continue
-			}
-
-			err := conn.WriteJSON(heartbeat)
-			c.writeMutex.Unlock()
-
-			if err != nil {
-				logging.Warning("Heartbeat send failed: %v", err)
-				c.consecutiveFailures++
-				// Don't return - just skip this heartbeat and retry on next tick
-				// attemptReconnection is already triggered by handleMessages on read error
-				continue
-			}
-
-			// Heartbeat sent successfully
-			if c.consecutiveFailures > 0 {
-				c.consecutiveFailures = 0 // Reset on successful send
-			}
-		}
 	}
 }
 

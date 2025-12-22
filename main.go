@@ -2,8 +2,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,7 +19,6 @@ import (
 	"nannyagentv2/internal/logging"
 	"nannyagentv2/internal/metrics"
 	"nannyagentv2/internal/types"
-	"nannyagentv2/internal/websocket"
 )
 
 const (
@@ -55,6 +57,11 @@ func showHelp() {
 	fmt.Println()
 	fmt.Printf("Documentation: https://nannyai.dev/documentation\n")
 	os.Exit(0)
+}
+
+type RealtimeMessage struct {
+	Action string                 `json:"action"`
+	Record map[string]interface{} `json:"record"`
 }
 
 // checkRootPrivileges ensures the program is running as root
@@ -452,8 +459,8 @@ func main() {
 
 	// Initialize components
 	authManager := auth.NewAuthManager(cfg)
-	metricsCollector := metrics.NewCollector(Version)
-	pbClient := metrics.NewPocketBaseClient(cfg.APIBaseURL)
+	//metricsCollector := metrics.NewCollector(Version)
+	//pbClient := metrics.NewPocketBaseClient(cfg.APIBaseURL)
 
 	// Ensure authentication
 	token, err := authManager.EnsureAuthenticated()
@@ -510,64 +517,180 @@ func main() {
 	applicationAgent := NewLinuxDiagnosticAgentWithAuth(authManager)
 	applicationAgent.SetModel("tensorzero::function_name::diagnose_and_heal_application")
 
-	// Start WebSocket client for backend communications and investigations
-	wsClient := websocket.NewWebSocketClient(applicationAgent, authManager)
+	accessToken, err := authManager.GetCurrentAccessToken()
+	if err != nil {
+		logging.Error("Failed to get current access token: %v", err)
+		os.Exit(1)
+	}
+
+	// Start SSE connection in a separate goroutine
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				logging.Error("WebSocket client panicked: %v", r)
+				logging.Error("SSE connection panicked: %v", r)
 			}
 		}()
-		if err := wsClient.Start(); err != nil {
-			logging.Error("WebSocket client error: %v", err)
-		}
-	}()
 
-	// Start background metrics collection in a goroutine
-	go func() {
-		ticker := time.NewTicker(time.Duration(cfg.MetricsInterval) * time.Second)
-		defer ticker.Stop()
-
-		// Send initial heartbeat
-		if err := sendHeartbeatToPocketBase(agentID, pbClient, token, metricsCollector); err != nil {
-			logging.Warning("Initial metrics ingestion failed: %v", err)
+		// Start pocketbase client
+		pbURL := "http://localhost:8090"
+		// IMPORTANT: SSE requires a client that doesn't buffer and doesn't timeout
+		customClient := &http.Client{
+			Transport: &http.Transport{
+				DisableCompression: true, // Crucial for SSE
+			},
+			Timeout: 0, // No timeout for long-lived connections
 		}
 
-		// Main metrics collection loop
-		for range ticker.C {
-			// Check if token needs refresh
-			if authManager.IsTokenExpired(token) {
-				newToken, refreshErr := authManager.EnsureAuthenticated()
-				if refreshErr != nil {
-					logging.Warning("Token refresh failed: %v", refreshErr)
+		logging.Info("Connecting to SSE at %s/api/realtime...", pbURL)
+		resp, err := customClient.Get(pbURL + "/api/realtime")
+		if err != nil {
+			logging.Error("Connection error: %v", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		reader := bufio.NewReader(resp.Body)
+
+		// Read the first event to get the clientId
+		var clientId string
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				logging.Error("Error reading from stream: %v", err)
+				return
+			}
+
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "data:") {
+				data := strings.TrimPrefix(line, "data:")
+				var connectEvent struct {
+					ClientId string `json:"clientId"`
+				}
+				if err := json.Unmarshal([]byte(data), &connectEvent); err == nil && connectEvent.ClientId != "" {
+					clientId = connectEvent.ClientId
+					break
+				}
+			}
+		}
+		logging.Info("Connected! Client ID: %s", clientId)
+
+		// --- STEP 2: Authorize & Subscribe ---
+		// This is where you tell PB: "I am this Agent, listen to 'investigations'"
+		subData, _ := json.Marshal(map[string]interface{}{
+			"clientId":      clientId,
+			"subscriptions": []string{"investigations"},
+		})
+
+		req, _ := http.NewRequest("POST", pbURL+"/api/realtime", bytes.NewBuffer(subData))
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Content-Type", "application/json")
+
+		subResp, err := http.DefaultClient.Do(req)
+		if err != nil || subResp.StatusCode != 204 {
+			logging.Error("Subscription failed: %v", err)
+			return
+		}
+		logging.Info("Subscribed to 'investigations' successfully.")
+
+		// --- STEP 3: Listen for Records ---
+		logging.Info("Waiting for events...")
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				logging.Error("Connection lost: %v", err)
+				break
+			}
+
+			line = strings.TrimSpace(line)
+
+			// Debug: Log everything so we can see the 'event:' lines too
+			if line != "" {
+				logging.Debug("Received: %s", line)
+			}
+
+			// We only care about the data: line
+			if strings.HasPrefix(line, "data:") {
+				msgJSON := strings.TrimPrefix(line, "data:")
+
+				// Ignore the initial connect message if it repeats
+				if strings.Contains(msgJSON, "clientId") {
 					continue
 				}
-				token = newToken
-			}
 
-			// Send metrics
-			if err := sendHeartbeatToPocketBase(agentID, pbClient, token, metricsCollector); err != nil {
-				logging.Warning("Metrics ingestion failed: %v", err)
-
-				// If unauthorized, try to refresh token
-				if err.Error() == "metrics ingestion failed: unauthorized - token may be expired" {
-					logging.Debug("Unauthorized, attempting token refresh...")
-					newToken, refreshErr := authManager.EnsureAuthenticated()
-					if refreshErr != nil {
-						logging.Warning("Token refresh failed: %v", refreshErr)
-						continue
+				var msg RealtimeMessage
+				if err := json.Unmarshal([]byte(msgJSON), &msg); err == nil {
+					// Accessing the record map
+					prompt := "N/A"
+					if p, ok := msg.Record["user_prompt"]; ok {
+						prompt = fmt.Sprintf("%v", p)
 					}
-					token = newToken
 
-					// Retry metrics with new token (silently)
-					if retryErr := sendHeartbeatToPocketBase(agentID, pbClient, token, metricsCollector); retryErr != nil {
-						logging.Warning("Retry metrics ingestion failed: %v", retryErr)
-					}
+					logging.Info("[RECEIVED] Action: %s | Prompt: %s", msg.Action, prompt)
+				} else {
+					logging.Error("JSON Error: %v", err)
 				}
 			}
-			// No logging for successful metrics - they should be silent
 		}
 	}()
+
+	// // Start WebSocket client for backend communications and investigations
+	// wsClient := websocket.NewWebSocketClient(applicationAgent, authManager)
+	// go func() {
+	// 	defer func() {
+	// 		if r := recover(); r != nil {
+	// 			logging.Error("WebSocket client panicked: %v", r)
+	// 		}
+	// 	}()
+	// 	if err := wsClient.Start(); err != nil {
+	// 		logging.Error("WebSocket client error: %v", err)
+	// 	}
+	// }()
+
+	// // Start background metrics collection in a goroutine
+	// go func() {
+	// 	ticker := time.NewTicker(time.Duration(cfg.MetricsInterval) * time.Second)
+	// 	defer ticker.Stop()
+
+	// 	// Send initial heartbeat
+	// 	if err := sendHeartbeatToPocketBase(agentID, pbClient, token, metricsCollector); err != nil {
+	// 		logging.Warning("Initial metrics ingestion failed: %v", err)
+	// 	}
+
+	// 	// Main metrics collection loop
+	// 	for range ticker.C {
+	// 		// Check if token needs refresh
+	// 		if authManager.IsTokenExpired(token) {
+	// 			newToken, refreshErr := authManager.EnsureAuthenticated()
+	// 			if refreshErr != nil {
+	// 				logging.Warning("Token refresh failed: %v", refreshErr)
+	// 				continue
+	// 			}
+	// 			token = newToken
+	// 		}
+
+	// 		// Send metrics
+	// 		if err := sendHeartbeatToPocketBase(agentID, pbClient, token, metricsCollector); err != nil {
+	// 			logging.Warning("Metrics ingestion failed: %v", err)
+
+	// 			// If unauthorized, try to refresh token
+	// 			if err.Error() == "metrics ingestion failed: unauthorized - token may be expired" {
+	// 				logging.Debug("Unauthorized, attempting token refresh...")
+	// 				newToken, refreshErr := authManager.EnsureAuthenticated()
+	// 				if refreshErr != nil {
+	// 					logging.Warning("Token refresh failed: %v", refreshErr)
+	// 					continue
+	// 				}
+	// 				token = newToken
+
+	// 				// Retry metrics with new token (silently)
+	// 				if retryErr := sendHeartbeatToPocketBase(agentID, pbClient, token, metricsCollector); retryErr != nil {
+	// 					logging.Warning("Retry metrics ingestion failed: %v", retryErr)
+	// 				}
+	// 			}
+	// 		}
+	// 		// No logging for successful metrics - they should be silent
+	// 	}
+	// }()
 
 	// Check if running in daemon mode
 	if *daemonFlag {
@@ -588,15 +711,15 @@ func main() {
 	runInteractiveDiagnostics(agent)
 }
 
-// sendHeartbeatToPocketBase collects metrics and sends them to PocketBase
-// agentID is passed to enable upsert functionality (update existing metrics instead of insert)
-func sendHeartbeatToPocketBase(agentID string, pbClient *metrics.PocketBaseClient, token *types.AuthToken, collector *metrics.Collector) error {
-	// Collect system metrics
-	systemMetrics, err := collector.GatherSystemMetrics()
-	if err != nil {
-		return fmt.Errorf("failed to gather system metrics: %w", err)
-	}
+// // sendHeartbeatToPocketBase collects metrics and sends them to PocketBase
+// // agentID is passed to enable upsert functionality (update existing metrics instead of insert)
+// func sendHeartbeatToPocketBase(agentID string, pbClient *metrics.PocketBaseClient, token *types.AuthToken, collector *metrics.Collector) error {
+// 	// Collect system metrics
+// 	systemMetrics, err := collector.GatherSystemMetrics()
+// 	if err != nil {
+// 		return fmt.Errorf("failed to gather system metrics: %w", err)
+// 	}
 
-	// Send metrics to PocketBase with agent_id for upsert
-	return pbClient.IngestMetrics(agentID, token.AccessToken, systemMetrics)
-}
+// 	// Send metrics to PocketBase with agent_id for upsert
+// 	return pbClient.IngestMetrics(agentID, token.AccessToken, systemMetrics)
+// }

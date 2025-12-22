@@ -27,28 +27,6 @@ func TestWebSocketClientCreation(t *testing.T) {
 	}
 }
 
-// TestHeartbeatInitialization verifies heartbeat goroutine can be started
-func TestHeartbeatInitialization(t *testing.T) {
-	mockAgent := &MockAgent{}
-	client := NewWebSocketClient(mockAgent, nil)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	client.ctx = ctx
-	client.cancel = cancel
-
-	// Start heartbeat
-	go client.startHeartbeat()
-
-	// Give heartbeat time to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Cancel context
-	cancel()
-
-	// Should complete without error
-	time.Sleep(100 * time.Millisecond)
-}
-
 // TestPollingRemovedFromStart verifies that polling is not started
 func TestPollingRemovedFromStart(t *testing.T) {
 	mockAgent := &MockAgent{}
