@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"bytes"
@@ -12,6 +12,7 @@ import (
 
 	"nannyagentv2/internal/ebpf"
 	"nannyagentv2/internal/executor"
+	"nannyagentv2/internal/investigations"
 	"nannyagentv2/internal/logging"
 	"nannyagentv2/internal/system"
 	"nannyagentv2/internal/types"
@@ -149,58 +150,20 @@ func (a *LinuxDiagnosticAgent) createInvestigation(issue string) (string, error)
 		return "", fmt.Errorf("auth manager does not support required interfaces")
 	}
 
-	// Create request payload
-	reqPayload := map[string]string{
-		"agent_id": agentID,
-		"issue":    issue,
-		"priority": "medium",
-	}
-
-	jsonData, err := json.Marshal(reqPayload)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
-	}
-
 	// Get PocketBase URL
 	pocketbaseURL := os.Getenv("POCKETBASE_URL")
 	if pocketbaseURL == "" {
 		pocketbaseURL = "http://localhost:8090"
 	}
 
-	endpoint := fmt.Sprintf("%s/api/investigations", pocketbaseURL)
-	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonData))
+	// Use investigations client
+	client := investigations.NewInvestigationsClient(pocketbaseURL)
+	resp, err := client.CreateInvestigation(accessToken, agentID, issue, "medium")
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", fmt.Errorf("failed to create investigation: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to send create investigation request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to create investigation (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	// Parse response to get ID
-	var respData struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(body, &respData); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if respData.ID == "" {
-		return "", fmt.Errorf("response did not contain investigation ID")
-	}
-
-	return respData.ID, nil
+	return resp.ID, nil
 }
 
 // DiagnoseIssue starts the diagnostic process for a given issue

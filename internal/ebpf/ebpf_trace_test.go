@@ -832,7 +832,8 @@ func TestAgentEBPFIntegration(t *testing.T) {
 	}
 
 	fmt.Printf("📊 Agent eBPF Execution Results:\n")
-	fmt.Printf("=" + strings.Repeat("=", 50) + "\n\n")
+	fmt.Println(strings.Repeat("=", 51))
+	fmt.Println()
 
 	for i, result := range results {
 		fmt.Printf("🔍 Program %d: %s\n", i+1, result["name"])

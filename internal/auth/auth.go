@@ -56,13 +56,19 @@ func NewAuthManager(cfg *config.Config) *AuthManager {
 
 // EnsureTokenStorageDir creates the token storage directory if it doesn't exist
 func (am *AuthManager) EnsureTokenStorageDir() error {
-	// Check if running as root
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("must run as root to create secure token storage directory")
+	tokenPath := am.getTokenPath()
+	dir := filepath.Dir(tokenPath)
+
+	// Only enforce root if we are using the default system directory
+	if dir == TokenStorageDir {
+		// Check if running as root
+		if os.Geteuid() != 0 {
+			return fmt.Errorf("must run as root to create secure token storage directory")
+		}
 	}
 
-	// Create directory with restricted permissions (0700 - only root can access)
-	if err := os.MkdirAll(TokenStorageDir, 0700); err != nil {
+	// Create directory with restricted permissions (0700)
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create token storage directory: %w", err)
 	}
 
@@ -373,7 +379,8 @@ func (am *AuthManager) SaveToken(token *types.AuthToken) error {
 
 	// Also save refresh token separately for backup recovery
 	if token.RefreshToken != "" {
-		refreshTokenPath := filepath.Join(TokenStorageDir, RefreshTokenFile)
+		dir := filepath.Dir(tokenPath)
+		refreshTokenPath := filepath.Join(dir, RefreshTokenFile)
 		if err := os.WriteFile(refreshTokenPath, []byte(token.RefreshToken), 0600); err != nil {
 			// Don't fail if refresh token backup fails, just log
 			logging.Warning("Failed to save backup refresh token: %v", err)
@@ -537,7 +544,9 @@ func (am *AuthManager) getTokenPath() string {
 }
 
 func (am *AuthManager) loadRefreshTokenFromBackup() (string, error) {
-	refreshTokenPath := filepath.Join(TokenStorageDir, RefreshTokenFile)
+	tokenPath := am.getTokenPath()
+	dir := filepath.Dir(tokenPath)
+	refreshTokenPath := filepath.Join(dir, RefreshTokenFile)
 
 	data, err := os.ReadFile(refreshTokenPath)
 	if err != nil {

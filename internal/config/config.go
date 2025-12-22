@@ -12,15 +12,8 @@ import (
 )
 
 type Config struct {
-	// Supabase Configuration (deprecated, use PocketBase instead)
-	SupabaseProjectURL string `yaml:"supabase_project_url"`
-
 	// PocketBase Configuration (primary)
 	APIBaseURL string `yaml:"api_base_url"`
-
-	// Edge Function Endpoints (auto-generated from SupabaseProjectURL)
-	DeviceAuthURL string `yaml:"device_auth_url"`
-	AgentAuthURL  string `yaml:"agent_auth_url"`
 
 	// Portal URL for device authorization
 	PortalURL string `yaml:"portal_url"`
@@ -105,11 +98,6 @@ func LoadConfig() (*Config, error) {
 		config.APIBaseURL = url
 	}
 
-	// Supabase configuration (deprecated)
-	if url := os.Getenv("SUPABASE_PROJECT_URL"); url != "" {
-		config.SupabaseProjectURL = url
-	}
-
 	if tokenPath := os.Getenv("TOKEN_PATH"); tokenPath != "" {
 		config.TokenPath = tokenPath
 	}
@@ -120,16 +108,6 @@ func LoadConfig() (*Config, error) {
 
 	if debug := os.Getenv("DEBUG"); debug == "true" || debug == "1" {
 		config.Debug = true
-	}
-
-	// Auto-generate edge function URLs from project URL if not explicitly set
-	if config.SupabaseProjectURL != "" {
-		if config.DeviceAuthURL == "" {
-			config.DeviceAuthURL = fmt.Sprintf("%s/functions/v1/device-auth", config.SupabaseProjectURL)
-		}
-		if config.AgentAuthURL == "" {
-			config.AgentAuthURL = fmt.Sprintf("%s/functions/v1/agent-auth-api", config.SupabaseProjectURL)
-		}
 	}
 
 	// Validate required configuration
@@ -156,16 +134,8 @@ func loadYAMLConfig(config *Config, path string) error {
 
 // Validate checks if all required configuration is present
 func (c *Config) Validate() error {
-	// Either PocketBase or Supabase URL is required
-	if c.APIBaseURL == "" && c.SupabaseProjectURL == "" {
-		return fmt.Errorf("missing required configuration: either API_BASE_URL (for PocketBase) or SUPABASE_PROJECT_URL (legacy) must be set")
-	}
-
-	// If using Supabase (legacy), ensure auto-generated URLs are present
-	if c.APIBaseURL == "" && c.SupabaseProjectURL != "" {
-		if c.DeviceAuthURL == "" || c.AgentAuthURL == "" {
-			return fmt.Errorf("failed to generate API endpoints from SUPABASE_PROJECT_URL")
-		}
+	if c.APIBaseURL == "" {
+		return fmt.Errorf("missing required configuration: API_BASE_URL (for PocketBase) must be set")
 	}
 
 	return nil
@@ -201,7 +171,7 @@ func (c *Config) PrintConfig() {
 	}
 
 	logging.Debug("Configuration:")
-	logging.Debug("  Supabase Project URL: %s", c.SupabaseProjectURL)
+	logging.Debug("  API Base URL: %s", c.APIBaseURL)
 	logging.Debug("  Metrics Interval: %d seconds", c.MetricsInterval)
 	logging.Debug("  Debug: %v", c.Debug)
 }

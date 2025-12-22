@@ -13,7 +13,7 @@ func TestLoadConfig_SystemYAML(t *testing.T) {
 
 	// Create a test YAML config
 	yamlContent := `
-supabase_project_url: https://test.supabase.co
+api_base_url: https://test.pocketbase.io
 portal_url: https://test.nannyai.dev
 token_path: /tmp/test_token.json
 metrics_interval: 60
@@ -32,8 +32,8 @@ debug: true
 	}
 
 	// Verify values
-	if config.SupabaseProjectURL != "https://test.supabase.co" {
-		t.Errorf("SupabaseProjectURL = %v, want https://test.supabase.co", config.SupabaseProjectURL)
+	if config.APIBaseURL != "https://test.pocketbase.io" {
+		t.Errorf("APIBaseURL = %v, want https://test.pocketbase.io", config.APIBaseURL)
 	}
 	if config.PortalURL != "https://test.nannyai.dev" {
 		t.Errorf("PortalURL = %v, want https://test.nannyai.dev", config.PortalURL)
@@ -55,7 +55,7 @@ func TestLoadConfig_EnvFile(t *testing.T) {
 	envPath := filepath.Join(tmpDir, "config.env")
 
 	envContent := `
-SUPABASE_PROJECT_URL=https://env.supabase.co
+API_BASE_URL=https://env.pocketbase.io
 TOKEN_PATH=/tmp/env_token.json
 NANNYAI_PORTAL_URL=https://env.nannyai.dev
 DEBUG=true
@@ -71,12 +71,12 @@ DEBUG=true
 	_ = os.Chdir(tmpDir)
 
 	// Set environment variables by loading the file
-	_ = os.Setenv("SUPABASE_PROJECT_URL", "https://env.supabase.co")
+	_ = os.Setenv("API_BASE_URL", "https://env.pocketbase.io")
 	_ = os.Setenv("TOKEN_PATH", "/tmp/env_token.json")
 	_ = os.Setenv("NANNYAI_PORTAL_URL", "https://env.nannyai.dev")
 	_ = os.Setenv("DEBUG", "true")
 	defer func() {
-		_ = os.Unsetenv("SUPABASE_PROJECT_URL")
+		_ = os.Unsetenv("API_BASE_URL")
 		_ = os.Unsetenv("TOKEN_PATH")
 		_ = os.Unsetenv("NANNYAI_PORTAL_URL")
 		_ = os.Unsetenv("DEBUG")
@@ -86,8 +86,8 @@ DEBUG=true
 	config := DefaultConfig
 
 	// Manually apply env vars (simulating LoadConfig behavior)
-	if url := os.Getenv("SUPABASE_PROJECT_URL"); url != "" {
-		config.SupabaseProjectURL = url
+	if url := os.Getenv("API_BASE_URL"); url != "" {
+		config.APIBaseURL = url
 	}
 	if tokenPath := os.Getenv("TOKEN_PATH"); tokenPath != "" {
 		config.TokenPath = tokenPath
@@ -99,19 +99,9 @@ DEBUG=true
 		config.Debug = true
 	}
 
-	// Auto-generate URLs
-	if config.SupabaseProjectURL != "" {
-		if config.DeviceAuthURL == "" {
-			config.DeviceAuthURL = config.SupabaseProjectURL + "/functions/v1/device-auth"
-		}
-		if config.AgentAuthURL == "" {
-			config.AgentAuthURL = config.SupabaseProjectURL + "/functions/v1/agent-auth-api"
-		}
-	}
-
 	// Verify
-	if config.SupabaseProjectURL != "https://env.supabase.co" {
-		t.Errorf("SupabaseProjectURL = %v, want https://env.supabase.co", config.SupabaseProjectURL)
+	if config.APIBaseURL != "https://env.pocketbase.io" {
+		t.Errorf("APIBaseURL = %v, want https://env.pocketbase.io", config.APIBaseURL)
 	}
 	if config.TokenPath != "/tmp/env_token.json" {
 		t.Errorf("TokenPath = %v, want /tmp/env_token.json", config.TokenPath)
@@ -124,36 +114,9 @@ DEBUG=true
 	}
 }
 
-func TestLoadConfig_AutoGenerateURLs(t *testing.T) {
-	baseURL := "https://project.supabase.co"
-
-	config := DefaultConfig
-	config.SupabaseProjectURL = baseURL
-
-	// Simulate auto-generation logic from LoadConfig
-	if config.DeviceAuthURL == "" {
-		config.DeviceAuthURL = config.SupabaseProjectURL + "/functions/v1/device-auth"
-	}
-	if config.AgentAuthURL == "" {
-		config.AgentAuthURL = config.SupabaseProjectURL + "/functions/v1/agent-auth-api"
-	}
-
-	expectedDeviceURL := "https://project.supabase.co/functions/v1/device-auth"
-	expectedAgentURL := "https://project.supabase.co/functions/v1/agent-auth-api"
-
-	if config.DeviceAuthURL != expectedDeviceURL {
-		t.Errorf("DeviceAuthURL = %v, want %v", config.DeviceAuthURL, expectedDeviceURL)
-	}
-	if config.AgentAuthURL != expectedAgentURL {
-		t.Errorf("AgentAuthURL = %v, want %v", config.AgentAuthURL, expectedAgentURL)
-	}
-}
-
 func TestValidate_Success(t *testing.T) {
 	config := &Config{
-		SupabaseProjectURL: "https://test.supabase.co",
-		DeviceAuthURL:      "https://test.supabase.co/functions/v1/device-auth",
-		AgentAuthURL:       "https://test.supabase.co/functions/v1/agent-auth-api",
+		APIBaseURL: "https://test.pocketbase.io",
 	}
 
 	err := config.Validate()
@@ -162,30 +125,18 @@ func TestValidate_Success(t *testing.T) {
 	}
 }
 
-func TestValidate_MissingSupabaseURL(t *testing.T) {
+func TestValidate_MissingURL(t *testing.T) {
 	config := &Config{
-		DeviceAuthURL: "https://test.supabase.co/functions/v1/device-auth",
-		AgentAuthURL:  "https://test.supabase.co/functions/v1/agent-auth-api",
+		// APIBaseURL missing
 	}
 
 	err := config.Validate()
 	if err == nil {
-		t.Error("Validate() expected error for missing SUPABASE_PROJECT_URL, got nil")
+		t.Error("Validate() expected error for missing API_BASE_URL, got nil")
 	}
-	if err != nil && err.Error() != "missing required environment variable: SUPABASE_PROJECT_URL" {
-		t.Errorf("Validate() error = %v, want 'missing required environment variable: SUPABASE_PROJECT_URL'", err)
-	}
-}
-
-func TestValidate_MissingGeneratedURLs(t *testing.T) {
-	config := &Config{
-		SupabaseProjectURL: "https://test.supabase.co",
-		// DeviceAuthURL and AgentAuthURL not set (simulating generation failure)
-	}
-
-	err := config.Validate()
-	if err == nil {
-		t.Error("Validate() expected error for missing generated URLs, got nil")
+	expectedErr := "missing required configuration: API_BASE_URL (for PocketBase) must be set"
+	if err != nil && err.Error() != expectedErr {
+		t.Errorf("Validate() error = %v, want '%s'", err, expectedErr)
 	}
 }
 
@@ -196,7 +147,7 @@ func TestLoadConfig_PriorityOrder(t *testing.T) {
 
 	// Create YAML with one value
 	yamlContent := `
-supabase_project_url: https://yaml.supabase.co
+api_base_url: https://yaml.pocketbase.io
 portal_url: https://yaml.nannyai.dev
 `
 	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
@@ -204,28 +155,28 @@ portal_url: https://yaml.nannyai.dev
 		t.Fatalf("Failed to create test config: %v", err)
 	}
 
-	// Set environment variable that should override
-	_ = os.Setenv("SUPABASE_PROJECT_URL", "https://env.supabase.co")
-	defer func() { _ = os.Unsetenv("SUPABASE_PROJECT_URL") }()
+	// Set environment variable for API_BASE_URL (should override YAML)
+	_ = os.Setenv("API_BASE_URL", "https://env.pocketbase.io")
+	defer os.Unsetenv("API_BASE_URL")
 
-	// Load YAML first
+	// Load config
 	config := DefaultConfig
 	err = loadYAMLConfig(&config, configPath)
 	if err != nil {
 		t.Fatalf("loadYAMLConfig() failed: %v", err)
 	}
 
-	// Apply env vars (simulating LoadConfig priority)
-	if url := os.Getenv("SUPABASE_PROJECT_URL"); url != "" {
-		config.SupabaseProjectURL = url
+	// Manually apply env override
+	if url := os.Getenv("API_BASE_URL"); url != "" {
+		config.APIBaseURL = url
 	}
 
-	// Environment variable should win
-	if config.SupabaseProjectURL != "https://env.supabase.co" {
-		t.Errorf("SupabaseProjectURL = %v, want https://env.supabase.co (env should override YAML)", config.SupabaseProjectURL)
+	// Verify API_BASE_URL is from ENV
+	if config.APIBaseURL != "https://env.pocketbase.io" {
+		t.Errorf("APIBaseURL = %v, want https://env.pocketbase.io", config.APIBaseURL)
 	}
 
-	// YAML value should remain for non-overridden fields
+	// Verify PortalURL is from YAML (not overridden)
 	if config.PortalURL != "https://yaml.nannyai.dev" {
 		t.Errorf("PortalURL = %v, want https://yaml.nannyai.dev", config.PortalURL)
 	}
@@ -273,7 +224,7 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 
 	// Create invalid YAML
 	invalidYAML := `
-supabase_project_url: https://test.supabase.co
+api_base_url: https://test.pocketbase.io
 portal_url: [invalid yaml structure
 `
 	err := os.WriteFile(configPath, []byte(invalidYAML), 0644)
@@ -318,19 +269,6 @@ func TestLoadConfig_SystemEnvFileExists(t *testing.T) {
 	_, err := os.Stat(nonExistentPath)
 	if !os.IsNotExist(err) {
 		t.Errorf("Expected file to not exist, but got: %v", err)
-	}
-}
-
-func TestLoadConfig_EmptySupabaseURL(t *testing.T) {
-	config := &Config{
-		SupabaseProjectURL: "",
-		DeviceAuthURL:      "",
-		AgentAuthURL:       "",
-	}
-
-	err := config.Validate()
-	if err == nil {
-		t.Error("Validate() should fail when SupabaseProjectURL is empty")
 	}
 }
 
