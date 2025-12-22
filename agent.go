@@ -120,9 +120,103 @@ func (a *LinuxDiagnosticAgent) GetInvestigationID() string {
 	return a.investigationID
 }
 
+// createInvestigation creates a new investigation record in the backend
+func (a *LinuxDiagnosticAgent) createInvestigation(issue string) (string, error) {
+	if a.authManager == nil {
+		return "", fmt.Errorf("authentication required to create investigation")
+	}
+
+	// Get Agent ID and Token
+	var agentID string
+	var accessToken string
+
+	if authMgr, ok := a.authManager.(interface {
+		GetCurrentAgentID() (string, error)
+		LoadToken() (*types.AuthToken, error)
+	}); ok {
+		var err error
+		agentID, err = authMgr.GetCurrentAgentID()
+		if err != nil {
+			return "", fmt.Errorf("failed to get agent ID: %w", err)
+		}
+
+		token, err := authMgr.LoadToken()
+		if err != nil {
+			return "", fmt.Errorf("failed to load token: %w", err)
+		}
+		accessToken = token.AccessToken
+	} else {
+		return "", fmt.Errorf("auth manager does not support required interfaces")
+	}
+
+	// Create request payload
+	reqPayload := map[string]string{
+		"agent_id": agentID,
+		"issue":    issue,
+		"priority": "medium",
+	}
+
+	jsonData, err := json.Marshal(reqPayload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Get PocketBase URL
+	pocketbaseURL := os.Getenv("POCKETBASE_URL")
+	if pocketbaseURL == "" {
+		pocketbaseURL = "http://localhost:8090"
+	}
+
+	endpoint := fmt.Sprintf("%s/api/investigations", pocketbaseURL)
+	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send create investigation request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to create investigation (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response to get ID
+	var respData struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &respData); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if respData.ID == "" {
+		return "", fmt.Errorf("response did not contain investigation ID")
+	}
+
+	return respData.ID, nil
+}
+
 // DiagnoseIssue starts the diagnostic process for a given issue
 // This is used for CLI or direct calls where investigation tracking is not needed
 func (a *LinuxDiagnosticAgent) DiagnoseIssue(issue string) error {
+	// For CLI mode, we first create an investigation record to get an ID
+	// This allows the backend to track the investigation and proxy requests correctly
+	logging.Info("Creating investigation record...")
+	id, err := a.createInvestigation(issue)
+	if err != nil {
+		return fmt.Errorf("failed to create investigation record: %w", err)
+	}
+
+	a.investigationID = id
+	logging.Info("Created investigation ID: %s", id)
+
 	return a.diagnoseIssueInternal(issue, false)
 }
 
@@ -335,11 +429,10 @@ func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatComp
 		tzRequest["tensorzero::episode_id"] = episodeID
 	}
 
-	// Add investigation ID in metadata if this is a portal-initiated investigation
+	// Add investigation ID to top-level for proxy routing
+	// This tells the backend to proxy the request to TensorZero instead of creating a new investigation
 	if a.investigationID != "" {
-		tzRequest["metadata"] = map[string]interface{}{
-			"investigation_id": a.investigationID,
-		}
+		tzRequest["investigation_id"] = a.investigationID
 	}
 
 	// Marshal request

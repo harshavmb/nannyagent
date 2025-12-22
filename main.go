@@ -278,7 +278,7 @@ func runStatusCommand() {
 	// Show API endpoint
 	apiURL := cfg.APIBaseURL
 	if apiURL == "" {
-		apiURL = "http://localhost:8090 (default)"
+		apiURL = fmt.Sprintf(os.Getenv("POCKETBASE_URL"), " (default")
 	}
 	fmt.Printf("✓ API Endpoint: %s\n", apiURL)
 
@@ -531,105 +531,156 @@ func main() {
 			}
 		}()
 
-		// Start pocketbase client
-		pbURL := "http://localhost:8090"
-		// IMPORTANT: SSE requires a client that doesn't buffer and doesn't timeout
-		customClient := &http.Client{
-			Transport: &http.Transport{
-				DisableCompression: true, // Crucial for SSE
-			},
-			Timeout: 0, // No timeout for long-lived connections
-		}
-
-		logging.Info("Connecting to SSE at %s/api/realtime...", pbURL)
-		resp, err := customClient.Get(pbURL + "/api/realtime")
-		if err != nil {
-			logging.Error("Connection error: %v", err)
-			return
-		}
-		defer resp.Body.Close()
-
-		reader := bufio.NewReader(resp.Body)
-
-		// Read the first event to get the clientId
-		var clientId string
+		// Retry loop for SSE connection
 		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				logging.Error("Error reading from stream: %v", err)
-				return
+			// Start pocketbase client
+			pbURL := os.Getenv("POCKETBASE_URL")
+			if pbURL == "" {
+				pbURL = "http://localhost:8090"
 			}
 
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "data:") {
-				data := strings.TrimPrefix(line, "data:")
-				var connectEvent struct {
-					ClientId string `json:"clientId"`
-				}
-				if err := json.Unmarshal([]byte(data), &connectEvent); err == nil && connectEvent.ClientId != "" {
-					clientId = connectEvent.ClientId
+			// IMPORTANT: SSE requires a client that doesn't buffer and doesn't timeout
+			customClient := &http.Client{
+				Transport: &http.Transport{
+					DisableCompression: true, // Crucial for SSE
+				},
+				Timeout: 0, // No timeout for long-lived connections
+			}
+
+			logging.Info("Connecting to SSE at %s/api/realtime...", pbURL)
+			resp, err := customClient.Get(pbURL + "/api/realtime")
+			if err != nil {
+				logging.Error("Connection error: %v", err)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
+			reader := bufio.NewReader(resp.Body)
+
+			// Read the first event to get the clientId
+			var clientId string
+			connectSuccess := false
+
+			// Read loop for handshake
+			for {
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					logging.Error("Error reading from stream during handshake: %v", err)
 					break
 				}
-			}
-		}
-		logging.Info("Connected! Client ID: %s", clientId)
 
-		// --- STEP 2: Authorize & Subscribe ---
-		// This is where you tell PB: "I am this Agent, listen to 'investigations'"
-		subData, _ := json.Marshal(map[string]interface{}{
-			"clientId":      clientId,
-			"subscriptions": []string{"investigations"},
-		})
-
-		req, _ := http.NewRequest("POST", pbURL+"/api/realtime", bytes.NewBuffer(subData))
-		req.Header.Set("Authorization", "Bearer "+accessToken)
-		req.Header.Set("Content-Type", "application/json")
-
-		subResp, err := http.DefaultClient.Do(req)
-		if err != nil || subResp.StatusCode != 204 {
-			logging.Error("Subscription failed: %v", err)
-			return
-		}
-		logging.Info("Subscribed to 'investigations' successfully.")
-
-		// --- STEP 3: Listen for Records ---
-		logging.Info("Waiting for events...")
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				logging.Error("Connection lost: %v", err)
-				break
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "data:") {
+					data := strings.TrimPrefix(line, "data:")
+					var connectEvent struct {
+						ClientId string `json:"clientId"`
+					}
+					if err := json.Unmarshal([]byte(data), &connectEvent); err == nil && connectEvent.ClientId != "" {
+						clientId = connectEvent.ClientId
+						connectSuccess = true
+						break
+					}
+				}
 			}
 
-			line = strings.TrimSpace(line)
-
-			// Debug: Log everything so we can see the 'event:' lines too
-			if line != "" {
-				logging.Debug("Received: %s", line)
+			if !connectSuccess {
+				resp.Body.Close()
+				logging.Warning("Failed to get Client ID, retrying in 5s...")
+				time.Sleep(5 * time.Second)
+				continue
 			}
 
-			// We only care about the data: line
-			if strings.HasPrefix(line, "data:") {
-				msgJSON := strings.TrimPrefix(line, "data:")
+			logging.Info("Connected! Client ID: %s", clientId)
 
-				// Ignore the initial connect message if it repeats
-				if strings.Contains(msgJSON, "clientId") {
-					continue
+			// --- STEP 2: Authorize & Subscribe ---
+			// This is where you tell PB: "I am this Agent, listen to 'investigations'"
+			subData, _ := json.Marshal(map[string]interface{}{
+				"clientId":      clientId,
+				"subscriptions": []string{"investigations"},
+			})
+
+			req, _ := http.NewRequest("POST", pbURL+"/api/realtime", bytes.NewBuffer(subData))
+			req.Header.Set("Authorization", "Bearer "+accessToken)
+			req.Header.Set("Content-Type", "application/json")
+
+			subResp, err := http.DefaultClient.Do(req)
+			if err != nil || subResp.StatusCode != 204 {
+				logging.Error("Subscription failed: %v", err)
+				resp.Body.Close()
+				time.Sleep(5 * time.Second)
+				continue
+			}
+			logging.Info("Subscribed to 'investigations' successfully.")
+
+			// --- STEP 3: Listen for Records ---
+			logging.Info("Waiting for events...")
+			for {
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					logging.Error("Connection lost: %v", err)
+					break
 				}
 
-				var msg RealtimeMessage
-				if err := json.Unmarshal([]byte(msgJSON), &msg); err == nil {
-					// Accessing the record map
-					prompt := "N/A"
-					if p, ok := msg.Record["user_prompt"]; ok {
-						prompt = fmt.Sprintf("%v", p)
+				line = strings.TrimSpace(line)
+
+				// Debug: Log everything so we can see the 'event:' lines too
+				if line != "" {
+					logging.Debug("Received: %s", line)
+				}
+
+				// We only care about the data: line
+				if strings.HasPrefix(line, "data:") {
+					msgJSON := strings.TrimPrefix(line, "data:")
+
+					// Ignore the initial connect message if it repeats
+					if strings.Contains(msgJSON, "clientId") {
+						continue
 					}
 
-					logging.Info("[RECEIVED] Action: %s | Prompt: %s", msg.Action, prompt)
-				} else {
-					logging.Error("JSON Error: %v", err)
+					var msg RealtimeMessage
+					if err := json.Unmarshal([]byte(msgJSON), &msg); err == nil {
+						// Accessing the record map
+						prompt := "N/A"
+						if p, ok := msg.Record["user_prompt"]; ok {
+							prompt = fmt.Sprintf("%v", p)
+						}
+
+						investigationID := ""
+						if id, ok := msg.Record["id"]; ok {
+							investigationID = fmt.Sprintf("%v", id)
+						}
+
+						logging.Info("[RECEIVED] Action: %s | Prompt: %s", msg.Action, prompt)
+
+						// Trigger investigation if it's a create action and we have necessary data
+						if msg.Action == "create" && prompt != "N/A" && investigationID != "" {
+							logging.Info("Triggering investigation %s...", investigationID)
+
+							// Run investigation in a separate goroutine
+							go func(id, p string) {
+								// Create a new agent instance for this investigation to ensure isolation
+								// and avoid race conditions with shared state (episodeID, investigationID)
+								investigationAgent := NewLinuxDiagnosticAgentWithAuth(authManager)
+								investigationAgent.SetModel("tensorzero::function_name::diagnose_and_heal_application")
+								investigationAgent.SetInvestigationID(id)
+
+								if err := investigationAgent.DiagnoseIssueWithInvestigation(p); err != nil {
+									logging.Error("Investigation %s failed: %v", id, err)
+								} else {
+									logging.Info("Investigation %s completed successfully", id)
+								}
+							}(investigationID, prompt)
+						}
+					} else {
+						logging.Error("JSON Error: %v", err)
+					}
 				}
 			}
+
+			// Close body and wait before reconnecting
+			resp.Body.Close()
+			logging.Info("Reconnecting in 5 seconds...")
+			time.Sleep(5 * time.Second)
 		}
 	}()
 
