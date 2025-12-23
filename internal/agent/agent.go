@@ -71,12 +71,9 @@ func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
 
 // NewLinuxDiagnosticAgentWithAuth creates a new diagnostic agent with authentication
 func NewLinuxDiagnosticAgentWithAuth(authManager interface{}) *LinuxDiagnosticAgent {
-	// Default model for diagnostic and healing
-	model := "tensorzero::function_name::diagnose_and_heal"
 
 	agent := &LinuxDiagnosticAgent{
-		client:      nil, // Not used - we use direct HTTP to PocketBase proxy
-		model:       model,
+		client:      nil,                                           // Not used - we use direct HTTP to PocketBase proxy
 		executor:    executor.NewCommandExecutor(10 * time.Second), // 10 second timeout for commands
 		config:      DefaultAgentConfig(),                          // Default concurrent execution config
 		authManager: authManager,                                   // Store auth manager for TensorZero requests
@@ -165,24 +162,19 @@ func (a *LinuxDiagnosticAgent) DiagnoseIssue(issue string) error {
 	a.investigationID = id
 	logging.Info("Created investigation ID: %s", id)
 
-	return a.diagnoseIssueInternal(issue, false)
+	return a.diagnoseIssueInternal(issue)
 }
 
 // DiagnoseIssueWithInvestigation diagnoses an issue that was initiated by backend/portal
 // The investigation_id is tracked externally (websocket handler updates status)
 // This prevents creating duplicate investigations
 func (a *LinuxDiagnosticAgent) DiagnoseIssueWithInvestigation(issue string) error {
-	// IMPORTANT: Clear any previous episodeID to prevent reusing episodes from prior investigations
-	a.episodeID = ""
-	logging.Info("[DIAGNOSIS_TRACK] Cleared previous episodeID for new investigation")
 	logging.Info("[DIAGNOSIS_TRACK] Investigation ID: %s", a.investigationID)
-	return a.diagnoseIssueInternal(issue, true)
+	return a.diagnoseIssueInternal(issue)
 }
 
 // diagnoseIssueInternal is the core diagnostic logic shared by both methods
-// If isBackendInitiated=true, it will NOT reset episodeID at the end (caller will manage it)
-// If isBackendInitiated=false, it will reset episodeID (CLI mode)
-func (a *LinuxDiagnosticAgent) diagnoseIssueInternal(issue string, isBackendInitiated bool) error {
+func (a *LinuxDiagnosticAgent) diagnoseIssueInternal(issue string) error {
 	logging.Info("Diagnosing issue: %s", issue)
 	logging.Info("Gathering system information...")
 
@@ -325,15 +317,6 @@ func (a *LinuxDiagnosticAgent) diagnoseIssueInternal(issue string, isBackendInit
 			logging.Info("Resolution Plan: %s", resolutionResp.ResolutionPlan)
 			logging.Info("Confidence: %s", resolutionResp.Confidence)
 
-			// Only reset episode ID for CLI-initiated investigations
-			// Backend-initiated investigations keep the episodeID for the caller to use
-			if !isBackendInitiated {
-				a.episodeID = ""
-				logging.Debug("Episode completed, reset episode_id for next conversation")
-			} else {
-				logging.Debug("Episode completed, keeping episode_id for backend investigation tracking")
-			}
-
 			break
 		}
 
@@ -372,11 +355,6 @@ func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatComp
 		"messages": messageMaps,
 	}
 
-	// Add episode ID if provided
-	if episodeID != "" {
-		tzRequest["tensorzero::episode_id"] = episodeID
-	}
-
 	// Add investigation ID to top-level for proxy routing
 	// This tells the backend to proxy the request to TensorZero instead of creating a new investigation
 	if a.investigationID != "" {
@@ -396,7 +374,7 @@ func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatComp
 	// PocketBase routes requests to /api/investigations for TensorZero integration
 	endpoint := fmt.Sprintf("%s/api/investigations", pocketbaseURL)
 	logging.Debug("Calling investigations endpoint at: %s", endpoint)
-	logging.Info("[TENSORZERO_API] POST %s with episodeID: %s", endpoint, episodeID)
+	logging.Info("[TENSORZERO_API] POST %s:", endpoint)
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(requestBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -540,12 +518,6 @@ parseResponse:
 				},
 			},
 		},
-	}
-
-	// Update episode ID if provided in response
-	if respEpisodeID, ok := tzResponse["episode_id"].(string); ok && respEpisodeID != "" {
-		logging.Info("[TENSORZERO_API] Received episode_id from TensorZero: %s", respEpisodeID)
-		a.episodeID = respEpisodeID
 	}
 
 	return response, nil

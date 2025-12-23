@@ -17,6 +17,7 @@ type SystemMetrics struct {
 	PlatformVersion string `json:"platform_version"`
 	KernelVersion   string `json:"kernel_version"`
 	KernelArch      string `json:"kernel_arch"`
+	OSType          string `json:"os"`
 
 	// CPU Metrics
 	CPUUsage float64 `json:"cpu_usage"`
@@ -40,10 +41,8 @@ type SystemMetrics struct {
 	DiskFree  uint64  `json:"disk_free"`
 
 	// Network Metrics
-	NetworkInKbps   float64 `json:"network_in_kbps"`
-	NetworkOutKbps  float64 `json:"network_out_kbps"`
-	NetworkInBytes  uint64  `json:"network_in_bytes"`
-	NetworkOutBytes uint64  `json:"network_out_bytes"`
+	NetworkInGb  float64 `json:"network_in_gb"`
+	NetworkOutGb float64 `json:"network_out_gb"`
 
 	// System Load
 	LoadAvg1  float64 `json:"load_avg_1"`
@@ -54,8 +53,9 @@ type SystemMetrics struct {
 	ProcessCount int `json:"process_count"`
 
 	// Network Information
-	IPAddress string `json:"ip_address"`
-	Location  string `json:"location"`
+	IPAddress string   `json:"ip_address"`
+	AllIPs    []string `json:"all_ips"`
+	Location  string   `json:"location"`
 
 	// Filesystem Information
 	FilesystemInfo []FilesystemInfo `json:"filesystem_info"`
@@ -108,8 +108,6 @@ type AuthToken struct {
 	ExpiresAt    time.Time `json:"expires_at"`
 	AgentID      string    `json:"agent_id"`
 }
-
-// PocketBase Agent Types
 
 // AgentStatus represents the current status of an agent
 type AgentStatus string
@@ -164,6 +162,7 @@ type RegisterRequest struct {
 	PrimaryIP     string   `json:"primary_ip"`     // Primary IP address (WAN/eth0)
 	KernelVersion string   `json:"kernel_version"` // Kernel version
 	AllIPs        []string `json:"all_ips"`        // All IP addresses from all NICs
+	OSType        string   `json:"os_type"`        // OS type (linux)
 }
 
 // TokenResponse represents the token response (compatible with both old and new)
@@ -191,10 +190,10 @@ type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token"` // Current refresh token
 }
 
-// NetworkStats contains network metrics in Gbps
+// NetworkStats contains network metrics in GB
 type NetworkStats struct {
-	InGbps  float64 `json:"in_gbps"`
-	OutGbps float64 `json:"out_gbps"`
+	InGB  float64 `json:"in_gb"`
+	OutGB float64 `json:"out_gb"`
 }
 
 // FilesystemStats contains filesystem information
@@ -227,14 +226,23 @@ type PocketBaseSystemMetrics struct {
 	Filesystems      []FilesystemStats `json:"filesystems"`        // List of filesystems
 	LoadAverage      LoadAverage       `json:"load_average"`
 	NetworkStats     NetworkStats      `json:"network_stats"`
+	KernelVersion    string            `json:"kernel_version"`
 }
 
 // IngestMetricsRequest - agent sends metrics to PocketBase
 type IngestMetricsRequest struct {
-	Action        string                 `json:"action"`         // "ingest-metrics"
-	AgentID       string                 `json:"agent_id"`       // Agent ID for upsert
-	Metrics       map[string]interface{} `json:"metrics"`        // System metrics (legacy)
-	SystemMetrics interface{}            `json:"system_metrics"` // System metrics (new format)
+	Action        string                  `json:"action"`         // "ingest-metrics"
+	SystemMetrics PocketBaseSystemMetrics `json:"system_metrics"` // System metrics (new format)
+
+	// Agent metadata updates
+	OSInfo        string   `json:"os_info,omitempty"`
+	OSVersion     string   `json:"os_version,omitempty"`
+	OSType        string   `json:"os_type,omitempty"`
+	Version       string   `json:"version,omitempty"`
+	PrimaryIP     string   `json:"primary_ip,omitempty"`
+	KernelVersion string   `json:"kernel_version,omitempty"`
+	Arch          string   `json:"arch,omitempty"`
+	AllIPs        []string `json:"all_ips,omitempty"`
 }
 
 // IngestMetricsResponse - confirmation
@@ -316,8 +324,8 @@ type MetricsRequest struct {
 	DiskUsage   float64 `json:"disk_usage"`
 
 	// Network metrics
-	NetworkInKbps  float64 `json:"network_in_kbps"`
-	NetworkOutKbps float64 `json:"network_out_kbps"`
+	NetworkInGb  float64 `json:"network_in_gb"`
+	NetworkOutGb float64 `json:"network_out_gb"`
 
 	// System information
 	Hostname          string `json:"hostname"`
@@ -332,7 +340,6 @@ type MetricsRequest struct {
 	OSInfo         map[string]string  `json:"os_info"`
 	FilesystemInfo []FilesystemInfo   `json:"filesystem_info"`
 	BlockDevices   []BlockDevice      `json:"block_devices"`
-	NetworkStats   map[string]uint64  `json:"network_stats"`
 }
 
 // Agent types for TensorZero integration
@@ -405,6 +412,7 @@ type SystemInfo struct {
 	Platform      string              `json:"platform"`
 	PlatformInfo  map[string]string   `json:"platform_info"`
 	KernelVersion string              `json:"kernel_version"`
+	OSType        string              `json:"os_type"`
 	Uptime        string              `json:"uptime"`
 	LoadAverage   []float64           `json:"load_average"`
 	CPUInfo       map[string]string   `json:"cpu_info"`

@@ -138,14 +138,13 @@ func validateDiagnosisPrompt(prompt string) error {
 // testAPIConnectivity tests if we can reach the API endpoint using PocketBase
 func testAPIConnectivity(cfg *config.Config, accessToken string, agentID string) error {
 	// Test by sending metrics to PocketBase /api/agent endpoint
-	pbClient := metrics.NewPocketBaseClient(cfg.APIBaseURL)
-	metricsCollector := metrics.NewCollector(Version)
+	metricsCollector := metrics.NewCollector(Version, cfg.APIBaseURL)
 	systemMetrics, err := metricsCollector.GatherSystemMetrics()
 	if err != nil {
 		return fmt.Errorf("failed to gather metrics: %w", err)
 	}
 
-	err = pbClient.IngestMetrics(agentID, accessToken, systemMetrics)
+	err = metricsCollector.IngestMetrics(agentID, accessToken, systemMetrics)
 	if err != nil {
 		return fmt.Errorf("metrics ingestion failed: %w", err)
 	}
@@ -243,9 +242,9 @@ func runRegisterCommand() {
 		os.Exit(1)
 	}
 
-	logging.Info("✓ Registration successful!")
-	logging.Info("✓ Agent ID: %s", token.AgentID)
-	logging.Info("✓ Token saved to: %s", cfg.TokenPath)
+	logging.Info("Registration successful!")
+	logging.Info("Agent ID: %s", token.AgentID)
+	logging.Info("Token saved to: %s", cfg.TokenPath)
 	logging.Info("")
 	logging.Info("Next steps:")
 	logging.Info("  1. Enable and start the service: sudo systemctl enable --now nannyagent")
@@ -262,7 +261,7 @@ func runStatusCommand() {
 	// Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		fmt.Println("✗ Configuration: Not found")
+		fmt.Println("Configuration: Not found")
 		os.Exit(1)
 	}
 
@@ -271,12 +270,12 @@ func runStatusCommand() {
 	if apiURL == "" {
 		apiURL = os.Getenv("POCKETBASE_URL")
 	}
-	fmt.Printf("✓ API Endpoint: %s\n", apiURL)
+	fmt.Printf("API Endpoint: %s\n", apiURL)
 
 	// Check if token exists
 	tokenPath := filepath.Join(DataDir, ".agent_token.json")
 	if _, err := os.Stat(tokenPath); os.IsNotExist(err) {
-		fmt.Println("✗ Not registered")
+		fmt.Println("Not registered")
 		fmt.Println("\nRegister with: sudo nannyagent --register")
 		os.Exit(1)
 	}
@@ -285,38 +284,41 @@ func runStatusCommand() {
 	authManager := auth.NewAuthManager(cfg)
 	token, err := authManager.EnsureAuthenticated()
 	if err != nil {
-		fmt.Println("✗ Authentication failed")
+		fmt.Println("Authentication failed")
 		os.Exit(1)
 	}
 
 	// Get Agent ID
 	agentID, err := authManager.GetCurrentAgentID()
 	if err != nil {
-		fmt.Println("✗ Failed to get Agent ID")
+		fmt.Println("Failed to get Agent ID")
 		os.Exit(1)
 	}
 
-	fmt.Printf("✓ Agent ID: %s\n", agentID)
+	fmt.Printf("Agent ID: %s\n", agentID)
 
-	// Test connectivity by sending metrics to PocketBase
-	pbClient := metrics.NewPocketBaseClient(cfg.APIBaseURL)
-	metricsCollector := metrics.NewCollector(Version)
+	// Test connectivity by sending metrics to backend API
+	metricsCollector := metrics.NewCollector(Version, cfg.APIBaseURL)
 	systemMetrics, err := metricsCollector.GatherSystemMetrics()
 	if err != nil {
-		fmt.Println("✗ Failed to gather metrics")
+		fmt.Println("Failed to gather metrics")
 		os.Exit(1)
 	}
 
-	err = pbClient.IngestMetrics(agentID, token.AccessToken, systemMetrics)
+	err = metricsCollector.IngestMetrics(agentID, token.AccessToken, systemMetrics)
+	if err != nil {
+		fmt.Println("Metrics ingestion failed")
+		os.Exit(1)
+	}
 	if _, err := exec.LookPath("systemctl"); err == nil {
 		cmd := exec.Command("systemctl", "is-active", "nannyagent")
 		output, _ := cmd.Output()
 		status := strings.TrimSpace(string(output))
 
 		if status == "active" {
-			fmt.Println("✓ Service running")
+			fmt.Println("Service running")
 		} else {
-			fmt.Printf("✗ Service %s\n", status)
+			fmt.Printf("Service %s\n", status)
 		}
 	}
 
@@ -478,7 +480,7 @@ func main() {
 		logging.Error("  3. API endpoint configured in /etc/nannyagent/config.yaml")
 		os.Exit(1)
 	}
-	logging.Info("✓ API connectivity OK")
+	logging.Info("API connectivity OK")
 
 	logging.Info("Authentication successful!")
 
@@ -503,12 +505,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Handle interactive mode (default if no flags)
-	if !*daemonFlag {
-		runInteractiveDiagnostics(diagAgent)
-		return
-	}
-
 	accessToken, err := authManager.GetCurrentAccessToken()
 	if err != nil {
 		logging.Error("Failed to get current access token: %v", err)
@@ -523,10 +519,10 @@ func main() {
 
 			// Create a new agent instance for this investigation to ensure isolation
 			investigationAgent := agent.NewLinuxDiagnosticAgentWithAuth(authManager)
-			investigationAgent.SetModel("tensorzero::function_name::diagnose_and_heal_application")
 			investigationAgent.SetInvestigationID(id)
 
 			if err := investigationAgent.DiagnoseIssueWithInvestigation(prompt); err != nil {
+
 				logging.Error("Investigation %s failed: %v", id, err)
 			} else {
 				logging.Info("Investigation %s completed successfully", id)
@@ -555,6 +551,9 @@ func main() {
 		select {}
 	}
 
-	// Start the interactive diagnostic session (blocking)
-	runInteractiveDiagnostics(diagAgent)
+	// Handle interactive mode (default if no flags)
+	if !*daemonFlag {
+		runInteractiveDiagnostics(diagAgent)
+		return
+	}
 }

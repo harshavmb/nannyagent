@@ -191,7 +191,7 @@ func TestSaveAndLoadToken(t *testing.T) {
 	}
 
 	// Need to mock EnsureTokenStorageDir since we're not running as root in tests
-	os.MkdirAll(tmpDir, 0700)
+	_ = os.MkdirAll(tmpDir, 0700)
 
 	// Save token
 	err := am.SaveToken(token)
@@ -236,7 +236,7 @@ func TestLoadToken_Expired(t *testing.T) {
 	}
 
 	// Mock token storage dir
-	os.MkdirAll(tmpDir, 0700)
+	_ = os.MkdirAll(tmpDir, 0700)
 
 	// Save token
 	err := am.SaveToken(token)

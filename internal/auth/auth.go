@@ -181,7 +181,7 @@ func (am *AuthManager) PollForTokenAfterAuthorization(deviceCode string) (*types
 			Action:     "register",
 			DeviceCode: deviceCode,
 			Hostname:   getHostname(),
-			Platform:   getPlatform(),
+			OSType:     getPlatform(),
 			Version:    "1.0.0", // Will be updated by agent
 		}
 
@@ -248,18 +248,18 @@ func (am *AuthManager) PollForTokenAfterAuthorization(deviceCode string) (*types
 }
 
 // RegisterAgent performs complete PocketBase registration and returns tokens
-func (am *AuthManager) RegisterAgent(deviceCode string, hostname string, platform string, version string, primaryIP string, allIPs []string, kernelVersion string) (*types.TokenResponse, error) {
+func (am *AuthManager) RegisterAgent(deviceCode string, hostname string, osType string, version string, primaryIP string, allIPs []string, kernelVersion string) (*types.TokenResponse, error) {
 	logging.Info("Registering agent with PocketBase...")
 
 	payload := types.RegisterRequest{
 		Action:        "register",
 		DeviceCode:    deviceCode,
 		Hostname:      hostname,
-		Platform:      platform,
 		Version:       version,
 		PrimaryIP:     primaryIP,
 		KernelVersion: kernelVersion,
 		AllIPs:        allIPs,
+		OSType:        osType,
 	}
 
 	jsonData, err := json.Marshal(payload)

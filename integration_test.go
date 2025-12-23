@@ -44,7 +44,7 @@ func TestIntegration_E2E_PocketBase_DeviceAuthFlow(t *testing.T) {
 		t.Fatalf("Failed to start device authorization: %v", err)
 	}
 
-	t.Logf("✓ Device authorization started")
+	t.Logf("Device authorization started")
 	t.Logf("  Device Code: %s", deviceAuth.DeviceCode)
 	t.Logf("  User Code: %s", deviceAuth.UserCode)
 	t.Logf("  Expires In: %d seconds", deviceAuth.ExpiresIn)
@@ -68,38 +68,31 @@ func TestIntegration_E2E_PocketBase_DeviceAuthFlow(t *testing.T) {
 	case err := <-done:
 		// In E2E test, this should fail since we haven't authorized
 		if err != nil {
-			t.Logf("✓ Polling correctly failed (expected in E2E without authorization): %v", err)
+			t.Logf("Polling correctly failed (expected in E2E without authorization): %v", err)
 		} else {
-			t.Logf("✓ Polling succeeded (authorization was completed!)")
+			t.Logf("Polling succeeded (authorization was completed!)")
 		}
 	case <-timeout:
-		t.Logf("✓ Polling timeout as expected (authorization not completed in test)")
+		t.Logf("Polling timeout as expected (authorization not completed in test)")
 	}
 
-	// Step 3: Test metrics collection and conversion
-	t.Log("\nStep 3: Testing metrics collection and conversion...")
-	collector := metrics.NewCollector("1.0.0")
+	// Step 3: Testing metrics collection and conversion...
+	collector := metrics.NewCollector("1.0.0", "http://localhost:8090")
 	systemMetrics, err := collector.GatherSystemMetrics()
 	if err != nil {
 		t.Fatalf("Failed to gather system metrics: %v", err)
 	}
 
-	t.Logf("✓ System metrics collected")
+	t.Logf("System metrics collected")
 	t.Logf("  Hostname: %s", systemMetrics.Hostname)
 	t.Logf("  CPU: %d cores, %.1f%% usage", systemMetrics.CPUCores, systemMetrics.CPUUsage)
 	t.Logf("  Memory: %.2f GB / %.2f GB", float64(systemMetrics.MemoryUsed)/(1024*1024*1024), float64(systemMetrics.MemoryTotal)/(1024*1024*1024))
 
-	// Step 4: Test PocketBase metrics client
-	t.Log("\nStep 4: Testing PocketBase metrics client...")
-	pbClient := metrics.NewPocketBaseClient(pocketbaseURL)
+	// Step 4: Test PocketBase metrics conversion (manual check since client is merged)
+	t.Log("\nStep 4: Testing PocketBase metrics conversion...")
 
-	// Verify client was created
-	if pbClient == nil {
-		t.Fatalf("Failed to create PocketBase client")
-	}
-
-	// Convert to PocketBase format (we'll create it manually since it's an unexported method)
-	pbMetrics := &types.PocketBaseSystemMetrics{
+	// Convert to PocketBase format manually for verification
+	pbMetrics := types.PocketBaseSystemMetrics{
 		CPUPercent:    systemMetrics.CPUUsage,
 		CPUCores:      systemMetrics.CPUCores,
 		MemoryUsedGB:  float64(systemMetrics.MemoryUsed) / (1024 * 1024 * 1024),
@@ -113,7 +106,7 @@ func TestIntegration_E2E_PocketBase_DeviceAuthFlow(t *testing.T) {
 		},
 	}
 
-	t.Logf("✓ Metrics converted to PocketBase format")
+	t.Logf("Metrics converted to PocketBase format")
 	t.Logf("  Memory: %.1f%% (%.1f GB / %.1f GB)", pbMetrics.MemoryPercent, pbMetrics.MemoryUsedGB, pbMetrics.MemoryTotalGB)
 	t.Logf("  Disk: %.1f%% (%.1f GB / %.1f GB)", pbMetrics.DiskUsagePercent, pbMetrics.DiskUsedGB, pbMetrics.DiskTotalGB)
 	t.Logf("  Load Average: 1m=%.2f, 5m=%.2f, 15m=%.2f", pbMetrics.LoadAverage.OneMin, pbMetrics.LoadAverage.FiveMin, pbMetrics.LoadAverage.FifteenMin)
@@ -131,7 +124,7 @@ func TestIntegration_E2E_PocketBase_DeviceAuthFlow(t *testing.T) {
 		t.Fatalf("Failed to marshal metrics request: %v", err)
 	}
 
-	t.Logf("✓ Metrics request structure is valid")
+	t.Logf("Metrics request structure is valid")
 	t.Logf("  JSON payload size: %d bytes", len(jsonData))
 
 	// Step 6: Test token persistence
@@ -148,7 +141,7 @@ func TestIntegration_E2E_PocketBase_DeviceAuthFlow(t *testing.T) {
 	}
 
 	// Create temp directory for token storage
-	os.MkdirAll(tmpDir, 0700)
+	_ = os.MkdirAll(tmpDir, 0700)
 
 	authManager2 := auth.NewAuthManager(cfg)
 	err = authManager2.SaveToken(testToken)
@@ -165,18 +158,18 @@ func TestIntegration_E2E_PocketBase_DeviceAuthFlow(t *testing.T) {
 		t.Fatalf("Token mismatch: expected %s, got %s", testToken.AgentID, loadedToken.AgentID)
 	}
 
-	t.Logf("✓ Token persistence works correctly")
+	t.Logf("Token persistence works correctly")
 	t.Logf("  Saved and loaded token with Agent ID: %s", loadedToken.AgentID)
 
 	// Summary
 	t.Log("\n" + "════════════════════════════════════════════════════════════════════════")
-	t.Log("✓ E2E Integration Test Summary")
+	t.Log("E2E Integration Test Summary")
 	t.Log("════════════════════════════════════════════════════════════════════════")
-	t.Log("✓ PocketBase connectivity verified")
-	t.Log("✓ Device authorization request/response structure validated")
-	t.Log("✓ Metrics collection working correctly")
-	t.Log("✓ Metrics conversion to PocketBase format successful")
-	t.Log("✓ Token persistence implemented correctly")
+	t.Log("PocketBase connectivity verified")
+	t.Log("Device authorization request/response structure validated")
+	t.Log("Metrics collection working correctly")
+	t.Log("Metrics conversion to PocketBase format successful")
+	t.Log("Token persistence implemented correctly")
 	t.Log("\nNext Steps for Full E2E Testing:")
 	t.Logf("1. Run agent with: POCKETBASE_URL=%s sudo nannyagent --register", pocketbaseURL)
 	t.Log("2. Authorize the device code in the PocketBase portal")
@@ -200,7 +193,7 @@ func TestIntegration_PocketBase_Types(t *testing.T) {
 		t.Fatalf("Failed to marshal DeviceAuthResponse: %v", err)
 	}
 
-	t.Logf("✓ DeviceAuthResponse: %d bytes", len(data))
+	t.Logf("DeviceAuthResponse: %d bytes", len(data))
 
 	// Test TokenResponse
 	tokenResp := types.TokenResponse{
@@ -216,7 +209,7 @@ func TestIntegration_PocketBase_Types(t *testing.T) {
 		t.Fatalf("Failed to marshal TokenResponse: %v", err)
 	}
 
-	t.Logf("✓ TokenResponse: %d bytes", len(data))
+	t.Logf("TokenResponse: %d bytes", len(data))
 
 	// Test IngestMetricsRequest
 	metrics := types.PocketBaseSystemMetrics{
@@ -245,7 +238,7 @@ func TestIntegration_PocketBase_Types(t *testing.T) {
 		t.Fatalf("Failed to marshal IngestMetricsRequest: %v", err)
 	}
 
-	t.Logf("✓ IngestMetricsRequest: %d bytes", len(data))
+	t.Logf("IngestMetricsRequest: %d bytes", len(data))
 
 	// Test AuthorizeRequest
 	authReq := types.AuthorizeRequest{
@@ -258,9 +251,9 @@ func TestIntegration_PocketBase_Types(t *testing.T) {
 		t.Fatalf("Failed to marshal AuthorizeRequest: %v", err)
 	}
 
-	t.Logf("✓ AuthorizeRequest: %d bytes", len(data))
+	t.Logf("AuthorizeRequest: %d bytes", len(data))
 
-	t.Log("✓ All PocketBase types are properly defined and serializable")
+	t.Log("All PocketBase types are properly defined and serializable")
 }
 
 // TestIntegration_Documentation prints comprehensive integration guide
@@ -275,9 +268,9 @@ func TestIntegration_Documentation(t *testing.T) {
 ╚════════════════════════════════════════════════════════════════════════════╝
 
 PREREQUISITES:
-  ✓ PocketBase running at http://127.0.0.1:8090/
-  ✓ Admin user: admin@nannyapi.local / AdminPass-123
-  ✓ Linux agent binary built (nannyagent_linux_amd64 or nannyagent_linux_arm64)
+  PocketBase running at http://127.0.0.1:8090/
+  Admin user: admin@nannyapi.local / AdminPass-123
+  Linux agent binary built (nannyagent_linux_amd64 or nannyagent_linux_arm64)
 
 STEP 1: Register a Test User in PocketBase
   1. Log in to PocketBase admin panel at http://127.0.0.1:8090/_/
@@ -312,10 +305,10 @@ STEP 4: Verify Registration
     ./nannyagent_linux_arm64 --status
   
   Expected output:
-    ✓ API Endpoint: http://127.0.0.1:8090
-    ✓ Agent ID: <uuid>
-    ✓ API connectivity OK
-    ✓ Service running
+    API Endpoint: http://127.0.0.1:8090
+    Agent ID: <uuid>
+    API connectivity OK
+    Service running
 
 STEP 5: Monitor Metrics Ingestion
   View PocketBase logs:
@@ -377,11 +370,11 @@ METRICS INGESTION:
     }
 
 FILES MODIFIED FOR POCKETBASE:
-  ✓ internal/auth/auth.go - PocketBase device auth implementation
-  ✓ internal/config/config.go - Added API_BASE_URL config
-  ✓ internal/metrics/pocketbase_client.go - Metrics ingestion client
-  ✓ internal/types/types.go - PocketBase-compatible types
-  ✓ main.go - Updated registration and metrics flows
+  internal/auth/auth.go - PocketBase device auth implementation
+  internal/config/config.go - Added API_BASE_URL config
+  internal/metrics/pocketbase_client.go - Metrics ingestion client
+  internal/types/types.go - PocketBase-compatible types
+  main.go - Updated registration and metrics flows
 
 TESTS:
   Run all tests:

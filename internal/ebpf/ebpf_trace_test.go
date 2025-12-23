@@ -88,7 +88,7 @@ func TestBCCTracing(t *testing.T) {
 		if err := ValidateTraceSpec(validSpec); err != nil {
 			t.Errorf("Valid spec failed validation: %v", err)
 		} else {
-			fmt.Printf("   ✓ Valid specification passed\n")
+			fmt.Printf("   Valid specification passed\n")
 		}
 
 		// Invalid spec - no target
@@ -100,7 +100,7 @@ func TestBCCTracing(t *testing.T) {
 		if err := ValidateTraceSpec(invalidSpec); err == nil {
 			t.Error("Invalid spec (no target) should have failed validation")
 		} else {
-			fmt.Printf("   ✓ Invalid specification correctly rejected: %s\n", err.Error())
+			fmt.Printf("   Invalid specification correctly rejected: %s\n", err.Error())
 		}
 
 		fmt.Println()
@@ -278,15 +278,15 @@ func TestTraceManagerCapabilities(t *testing.T) {
 
 	// Check essential capabilities
 	if !caps["kernel_ebpf"] {
-		fmt.Printf("⚠️  Warning: Kernel eBPF support not detected\n")
+		fmt.Printf(" Warning: Kernel eBPF support not detected\n")
 	}
 
 	if !caps["bpftrace"] {
-		fmt.Printf("⚠️  Warning: bpftrace not available (install with: apt install bpftrace)\n")
+		fmt.Printf(" Warning: bpftrace not available (install with: apt install bpftrace)\n")
 	}
 
 	if !caps["root_access"] {
-		fmt.Printf("⚠️  Warning: Root access required for eBPF tracing\n")
+		fmt.Printf(" Warning: Root access required for eBPF tracing\n")
 	}
 }
 
@@ -366,13 +366,13 @@ func TestMain(m *testing.M) {
 	caps := manager.GetCapabilities()
 
 	if !caps["kernel_ebpf"] {
-		fmt.Println("⚠️  Kernel eBPF support not detected - some tests may be limited")
+		fmt.Println(" Kernel eBPF support not detected - some tests may be limited")
 	}
 	if !caps["bpftrace"] {
-		fmt.Println("⚠️  bpftrace not available - install with: sudo apt install bpftrace")
+		fmt.Println(" bpftrace not available - install with: sudo apt install bpftrace")
 	}
 	if !caps["root_access"] {
-		fmt.Println("⚠️  Root access required for actual eBPF tracing")
+		fmt.Println(" Root access required for actual eBPF tracing")
 	}
 
 	fmt.Println()
@@ -398,7 +398,7 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 
 	// Check if running as root
 	if os.Geteuid() != 0 {
-		t.Skip("⚠️  Skipping root test - not running as root (use: sudo go test -run TestBCCTraceManagerRootTest)")
+		t.Skip(" Skipping root test - not running as root (use: sudo go test -run TestBCCTraceManagerRootTest)")
 		return
 	}
 
@@ -499,7 +499,7 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 
 	// Test 3: Validate the trace produced real data
 	if result.EventCount == 0 {
-		fmt.Println("⚠️  Warning: No events captured - this might be normal for a quiet system")
+		fmt.Println(" Warning: No events captured - this might be normal for a quiet system")
 	} else {
 		fmt.Printf("✅ Successfully captured %d real eBPF events!\n", result.EventCount)
 	}
@@ -691,7 +691,7 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 		testResult, err := manager.GetTraceResult(testTraceID)
 		if err != nil {
 			_ = manager.StopTrace(testTraceID)
-			fmt.Printf("   ⚠️  Result error: %v\n", err)
+			fmt.Printf("    Result error: %v\n", err)
 			continue
 		}
 
@@ -730,7 +730,7 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 		if testResult.EventCount > 0 {
 			fmt.Printf("   ✅ Success: Captured %d real syscall events!\n", testResult.EventCount)
 		} else {
-			fmt.Printf("   ⚠️  No events captured (may be normal for this syscall)\n")
+			fmt.Printf("    No events captured (may be normal for this syscall)\n")
 		}
 	}
 
@@ -742,7 +742,7 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 // This demonstrates the complete flow from agent to eBPF results
 func TestAgentEBPFIntegration(t *testing.T) {
 	if os.Geteuid() != 0 {
-		t.Skip("⚠️  Skipping agent integration test - requires root access")
+		t.Skip(" Skipping agent integration test - requires root access")
 		return
 	}
 
