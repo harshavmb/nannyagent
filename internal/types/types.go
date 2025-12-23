@@ -154,15 +154,16 @@ type AuthorizeResponse struct {
 
 // RegisterRequest - agent registers with device code
 type RegisterRequest struct {
-	Action        string   `json:"action"`         // "register"
-	DeviceCode    string   `json:"device_code"`    // UUID from device-auth-start
-	Hostname      string   `json:"hostname"`       // Agent hostname
-	Platform      string   `json:"platform"`       // OS platform
-	Version       string   `json:"version"`        // Agent version
-	PrimaryIP     string   `json:"primary_ip"`     // Primary IP address (WAN/eth0)
-	KernelVersion string   `json:"kernel_version"` // Kernel version
-	AllIPs        []string `json:"all_ips"`        // All IP addresses from all NICs
-	OSType        string   `json:"os_type"`        // OS type (linux)
+	Action         string   `json:"action"`          // "register"
+	DeviceCode     string   `json:"device_code"`     // UUID from device-auth-start
+	Hostname       string   `json:"hostname"`        // Agent hostname
+	Platform       string   `json:"platform"`        // OS platform
+	PlatformFamily string   `json:"platform_family"` // OS family (debian, redhat, etc)
+	Version        string   `json:"version"`         // Agent version
+	PrimaryIP      string   `json:"primary_ip"`      // Primary IP address (WAN/eth0)
+	KernelVersion  string   `json:"kernel_version"`  // Kernel version
+	AllIPs         []string `json:"all_ips"`         // All IP addresses from all NICs
+	OSType         string   `json:"os_type"`         // OS type (linux)
 }
 
 // TokenResponse represents the token response (compatible with both old and new)
@@ -235,14 +236,15 @@ type IngestMetricsRequest struct {
 	SystemMetrics PocketBaseSystemMetrics `json:"system_metrics"` // System metrics (new format)
 
 	// Agent metadata updates
-	OSInfo        string   `json:"os_info,omitempty"`
-	OSVersion     string   `json:"os_version,omitempty"`
-	OSType        string   `json:"os_type,omitempty"`
-	Version       string   `json:"version,omitempty"`
-	PrimaryIP     string   `json:"primary_ip,omitempty"`
-	KernelVersion string   `json:"kernel_version,omitempty"`
-	Arch          string   `json:"arch,omitempty"`
-	AllIPs        []string `json:"all_ips,omitempty"`
+	OSInfo         string   `json:"os_info,omitempty"`
+	OSVersion      string   `json:"os_version,omitempty"`
+	OSType         string   `json:"os_type,omitempty"`
+	PlatformFamily string   `json:"platform_family,omitempty"` // Required for patch management
+	Version        string   `json:"version,omitempty"`
+	PrimaryIP      string   `json:"primary_ip,omitempty"`
+	KernelVersion  string   `json:"kernel_version,omitempty"`
+	Arch           string   `json:"arch,omitempty"`
+	AllIPs         []string `json:"all_ips,omitempty"`
 }
 
 // IngestMetricsResponse - confirmation
@@ -520,4 +522,52 @@ type InvestigationUpdateRequest struct {
 	CompletedAt    *time.Time             `json:"completed_at,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 	EpisodeID      string                 `json:"episode_id,omitempty"`
+}
+
+// Patch Management Types
+// PatchMode represents patch operation mode
+type PatchMode string
+
+const (
+	PatchModeDryRun PatchMode = "dry-run"
+	PatchModeApply  PatchMode = "apply"
+)
+
+// PatchStatus represents patch operation lifecycle
+type PatchStatus string
+
+const (
+	PatchStatusPending    PatchStatus = "pending"
+	PatchStatusRunning    PatchStatus = "running"
+	PatchStatusCompleted  PatchStatus = "completed"
+	PatchStatusFailed     PatchStatus = "failed"
+	PatchStatusRolledBack PatchStatus = "rolled_back"
+)
+
+// AgentPatchPayload is sent to agent via realtime for execution
+type AgentPatchPayload struct {
+	OperationID string `json:"operation_id"`
+	Mode        string `json:"mode"` // dry-run or apply
+	ScriptURL   string `json:"script_url"`
+	ScriptArgs  string `json:"script_args"`
+	Timestamp   string `json:"timestamp"`
+}
+
+// AgentPatchResult is received from agent after execution
+type AgentPatchResult struct {
+	OperationID string             `json:"operation_id"`
+	Success     bool               `json:"success"`
+	OutputPath  string             `json:"output_path"` // Where agent stored output
+	ErrorMsg    string             `json:"error_msg"`
+	PackageList []PatchPackageInfo `json:"package_list"` // Packages that were changed
+	Duration    int64              `json:"duration_ms"`
+	Timestamp   string             `json:"timestamp"`
+}
+
+// PatchPackageInfo represents package info from agent response
+type PatchPackageInfo struct {
+	Name       string `json:"name"`
+	Version    string `json:"version"`
+	UpdateType string `json:"update_type"` // install, update, remove
+	Details    string `json:"details"`
 }

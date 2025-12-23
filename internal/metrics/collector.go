@@ -312,14 +312,15 @@ func (c *Collector) IngestMetrics(agentID string, accessToken string, systemMetr
 		Action:        "ingest-metrics",
 		SystemMetrics: pbMetrics,
 		// Populate agent metadata updates
-		OSInfo:        systemMetrics.Platform,
-		OSVersion:     systemMetrics.PlatformVersion,
-		OSType:        systemMetrics.OSType,
-		Version:       c.agentVersion,
-		PrimaryIP:     systemMetrics.IPAddress,
-		KernelVersion: systemMetrics.KernelVersion,
-		Arch:          systemMetrics.KernelArch,
-		AllIPs:        systemMetrics.AllIPs,
+		OSInfo:         systemMetrics.Platform,
+		OSVersion:      systemMetrics.PlatformVersion,
+		OSType:         systemMetrics.OSType,
+		PlatformFamily: systemMetrics.PlatformFamily, // Required for patch management
+		Version:        c.agentVersion,
+		PrimaryIP:      systemMetrics.IPAddress,
+		KernelVersion:  systemMetrics.KernelVersion,
+		Arch:           systemMetrics.KernelArch,
+		AllIPs:         systemMetrics.AllIPs,
 	}
 
 	jsonData, err := json.Marshal(payload)

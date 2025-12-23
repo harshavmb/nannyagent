@@ -56,7 +56,7 @@ func TestClient_Start(t *testing.T) {
 		close(done)
 	}
 
-	client := NewClient(server.URL, "test-token", handler)
+	client := NewClient(server.URL, "test-token", handler, nil)
 
 	// Run Start in a goroutine
 	go client.Start()

@@ -16,6 +16,7 @@ import (
 	"nannyagentv2/internal/config"
 	"nannyagentv2/internal/logging"
 	"nannyagentv2/internal/metrics"
+	"nannyagentv2/internal/patches"
 	"nannyagentv2/internal/realtime"
 	"nannyagentv2/internal/types"
 )
@@ -514,7 +515,7 @@ func main() {
 	// Start SSE connection in a separate goroutine
 	go func() {
 		// Define the handler for investigations
-		handler := func(id, prompt string) {
+		investigationHandler := func(id, prompt string) {
 			logging.Info("Triggering investigation %s...", id)
 
 			// Create a new agent instance for this investigation to ensure isolation
@@ -522,17 +523,30 @@ func main() {
 			investigationAgent.SetInvestigationID(id)
 
 			if err := investigationAgent.DiagnoseIssueWithInvestigation(prompt); err != nil {
-
 				logging.Error("Investigation %s failed: %v", id, err)
 			} else {
 				logging.Info("Investigation %s completed successfully", id)
 			}
 		}
 
+		// Define the handler for patch operations
+		patchHandler := func(payload types.AgentPatchPayload) {
+			logging.Info("Triggering patch operation %s (mode: %s)...", payload.OperationID, payload.Mode)
+
+			// Create patch manager
+			patchManager := patches.NewPatchManager(cfg.APIBaseURL, accessToken, agentID)
+
+			if err := patchManager.HandlePatchOperation(payload); err != nil {
+				logging.Error("Patch operation %s failed: %v", payload.OperationID, err)
+			} else {
+				logging.Info("Patch operation %s completed successfully", payload.OperationID)
+			}
+		}
+
 		// Create and start the realtime client
 		// Use POCKETBASE_URL from env or default
 		pbURL := cfg.APIBaseURL
-		realtimeClient := realtime.NewClient(pbURL, accessToken, handler)
+		realtimeClient := realtime.NewClient(pbURL, accessToken, investigationHandler, patchHandler)
 		realtimeClient.Start()
 	}()
 

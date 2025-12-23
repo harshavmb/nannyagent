@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shirou/gopsutil/v3/host"
+
 	"nannyagentv2/internal/config"
 	"nannyagentv2/internal/logging"
 	"nannyagentv2/internal/types"
@@ -178,11 +180,12 @@ func (am *AuthManager) PollForTokenAfterAuthorization(deviceCode string) (*types
 	for attempts := 0; attempts < MaxPollAttempts; attempts++ {
 		// Create register request to check if device is authorized
 		payload := types.RegisterRequest{
-			Action:     "register",
-			DeviceCode: deviceCode,
-			Hostname:   getHostname(),
-			OSType:     getPlatform(),
-			Version:    "1.0.0", // Will be updated by agent
+			Action:         "register",
+			DeviceCode:     deviceCode,
+			Hostname:       getHostname(),
+			OSType:         getPlatform(),
+			PlatformFamily: getPlatformFamily(),
+			Version:        "1.0.0", // Will be updated by agent
 		}
 
 		jsonData, err := json.Marshal(payload)
@@ -248,18 +251,19 @@ func (am *AuthManager) PollForTokenAfterAuthorization(deviceCode string) (*types
 }
 
 // RegisterAgent performs complete PocketBase registration and returns tokens
-func (am *AuthManager) RegisterAgent(deviceCode string, hostname string, osType string, version string, primaryIP string, allIPs []string, kernelVersion string) (*types.TokenResponse, error) {
+func (am *AuthManager) RegisterAgent(deviceCode string, hostname string, osType string, platformFamily string, version string, primaryIP string, allIPs []string, kernelVersion string) (*types.TokenResponse, error) {
 	logging.Info("Registering agent with PocketBase...")
 
 	payload := types.RegisterRequest{
-		Action:        "register",
-		DeviceCode:    deviceCode,
-		Hostname:      hostname,
-		Version:       version,
-		PrimaryIP:     primaryIP,
-		KernelVersion: kernelVersion,
-		AllIPs:        allIPs,
-		OSType:        osType,
+		Action:         "register",
+		DeviceCode:     deviceCode,
+		Hostname:       hostname,
+		Version:        version,
+		PrimaryIP:      primaryIP,
+		KernelVersion:  kernelVersion,
+		AllIPs:         allIPs,
+		OSType:         osType,
+		PlatformFamily: platformFamily,
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -573,4 +577,16 @@ func getPlatform() string {
 		platform = "linux" // Default for NannyAgent
 	}
 	return platform
+}
+
+func getPlatformFamily() string {
+	platform, family, _, err := host.PlatformInformation()
+	if err != nil {
+		return "unknown"
+	}
+	// If family is empty, use platform
+	if family == "" {
+		return platform
+	}
+	return family
 }

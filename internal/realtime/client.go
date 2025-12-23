@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"nannyagentv2/internal/logging"
+	"nannyagentv2/internal/types"
 )
 
 type RealtimeMessage struct {
@@ -20,19 +21,24 @@ type RealtimeMessage struct {
 // InvestigationHandler is a callback function that processes an investigation request
 type InvestigationHandler func(investigationID, prompt string)
 
+// PatchHandler is a callback function that processes a patch operation request
+type PatchHandler func(payload types.AgentPatchPayload)
+
 // Client handles the Realtime (SSE) connection to PocketBase
 type Client struct {
-	baseURL     string
-	accessToken string
-	handler     InvestigationHandler
+	baseURL              string
+	accessToken          string
+	investigationHandler InvestigationHandler
+	patchHandler         PatchHandler
 }
 
 // NewClient creates a new Realtime client
-func NewClient(baseURL, accessToken string, handler InvestigationHandler) *Client {
+func NewClient(baseURL, accessToken string, investigationHandler InvestigationHandler, patchHandler PatchHandler) *Client {
 	return &Client{
-		baseURL:     baseURL,
-		accessToken: accessToken,
-		handler:     handler,
+		baseURL:              baseURL,
+		accessToken:          accessToken,
+		investigationHandler: investigationHandler,
+		patchHandler:         patchHandler,
 	}
 }
 
@@ -100,10 +106,10 @@ func (c *Client) Start() {
 		logging.Info("Connected! Client ID: %s", clientId)
 
 		// --- STEP 2: Authorize & Subscribe ---
-		// This is where you tell PB: "I am this Agent, listen to 'investigations'"
+		// This is where you tell PB: "I am this Agent, listen to 'investigations' and 'patch_operations'"
 		subData, _ := json.Marshal(map[string]interface{}{
 			"clientId":      clientId,
-			"subscriptions": []string{"investigations"},
+			"subscriptions": []string{"investigations", "patch_operations"},
 		})
 
 		req, _ := http.NewRequest("POST", c.baseURL+"/api/realtime", bytes.NewBuffer(subData))
@@ -117,7 +123,7 @@ func (c *Client) Start() {
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		logging.Info("Subscribed to 'investigations' successfully.")
+		logging.Info("Subscribed to 'investigations' and 'patch_operations' successfully.")
 
 		// --- STEP 3: Listen for Records ---
 		logging.Info("Waiting for events...")
@@ -146,7 +152,37 @@ func (c *Client) Start() {
 
 				var msg RealtimeMessage
 				if err := json.Unmarshal([]byte(msgJSON), &msg); err == nil {
-					// Accessing the record map
+					// Check if this is a patch operation
+					if msg.Action == "create" {
+						// Try to parse as patch operation first
+						if operationID, ok := msg.Record["id"].(string); ok {
+							if mode, okMode := msg.Record["mode"].(string); okMode {
+								if scriptURL, okURL := msg.Record["script_url"].(string); okURL {
+									// This is a patch operation
+									payload := types.AgentPatchPayload{
+										OperationID: operationID,
+										Mode:        mode,
+										ScriptURL:   scriptURL,
+										Timestamp:   time.Now().Format(time.RFC3339),
+									}
+
+									// Optional script args
+									if args, okArgs := msg.Record["script_args"].(string); okArgs {
+										payload.ScriptArgs = args
+									}
+
+									logging.Info("Received patch operation: %s (mode: %s)", operationID, mode)
+
+									if c.patchHandler != nil {
+										go c.patchHandler(payload)
+									}
+									continue
+								}
+							}
+						}
+					}
+
+					// Otherwise try to parse as investigation
 					prompt := "N/A"
 					if p, ok := msg.Record["user_prompt"]; ok {
 						prompt = fmt.Sprintf("%v", p)
@@ -164,8 +200,8 @@ func (c *Client) Start() {
 						logging.Info("Triggering investigation %s...", investigationID)
 
 						// Call the handler
-						if c.handler != nil {
-							go c.handler(investigationID, prompt)
+						if c.investigationHandler != nil {
+							go c.investigationHandler(investigationID, prompt)
 						}
 					}
 				} else {
