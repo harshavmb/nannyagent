@@ -140,7 +140,7 @@ portal_url: https://yaml.nannyai.dev
 
 	// Set environment variable for POCKETBASE_URL (should override YAML)
 	_ = os.Setenv("POCKETBASE_URL", "https://env.pocketbase.io")
-	defer os.Unsetenv("POCKETBASE_URL")
+	defer func() { _ = os.Unsetenv("POCKETBASE_URL") }()
 
 	// Load config
 	config := DefaultConfig

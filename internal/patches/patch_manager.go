@@ -22,26 +22,25 @@ import (
 // PatchManager handles patch operations
 type PatchManager struct {
 	baseURL     string
-	accessToken string
-	agentID     string
-	client      *http.Client
+	authManager interface {
+		AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error)
+	}
+	agentID string
 }
 
 // NewPatchManager creates a new patch manager
-func NewPatchManager(baseURL, accessToken, agentID string) *PatchManager {
+func NewPatchManager(baseURL string, authManager interface {
+	AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error)
+}, agentID string) *PatchManager {
 	return &PatchManager{
 		baseURL:     baseURL,
-		accessToken: accessToken,
+		authManager: authManager,
 		agentID:     agentID,
-		client: &http.Client{
-			Timeout: 300 * time.Second, // 5 minutes timeout for downloads/uploads
-		},
 	}
 }
 
 // HandlePatchOperation processes a patch operation request
 func (pm *PatchManager) HandlePatchOperation(payload types.AgentPatchPayload) error {
-	logging.Info("Print all the payload %v", payload)
 	logging.Info("Processing patch operation: %s (Mode: %s)", payload.OperationID, payload.Mode)
 
 	// Create temporary directory for execution
@@ -49,7 +48,7 @@ func (pm *PatchManager) HandlePatchOperation(payload types.AgentPatchPayload) er
 	if err != nil {
 		return pm.reportFailure(payload.OperationID, fmt.Sprintf("Failed to create temp dir: %v", err))
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// 1. Download script
 	scriptPath := filepath.Join(tmpDir, "patch_script")
@@ -140,17 +139,11 @@ func (pm *PatchManager) downloadScript(url string, destPath string) error {
 		fullURL = fmt.Sprintf("%s%s", pm.baseURL, url)
 	}
 
-	req, err := http.NewRequest("GET", fullURL, nil)
+	resp, err := pm.authManager.AuthenticatedDo("GET", fullURL, nil, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+pm.accessToken)
-
-	resp, err := pm.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download failed with status: %d", resp.StatusCode)
@@ -160,7 +153,7 @@ func (pm *PatchManager) downloadScript(url string, destPath string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	_, err = io.Copy(out, resp.Body)
 	return err
@@ -173,7 +166,7 @@ func (pm *PatchManager) validateScript(scriptURL, filePath string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
@@ -212,17 +205,11 @@ func (pm *PatchManager) validateScript(scriptURL, filePath string) error {
 
 	// Call validation endpoint
 	validateURL := fmt.Sprintf("%s/api/scripts/%s/validate", pm.baseURL, scriptID)
-	req, err := http.NewRequest("GET", validateURL, nil)
+	resp, err := pm.authManager.AuthenticatedDo("GET", validateURL, nil, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+pm.accessToken)
-
-	resp, err := pm.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("validation API failed with status: %d", resp.StatusCode)
@@ -278,18 +265,15 @@ func (pm *PatchManager) uploadResults(operationID string, exitCode int, stdout, 
 
 	// Send request
 	url := fmt.Sprintf("%s/api/patches/%s/result", pm.baseURL, operationID)
-	req, err := http.NewRequest("POST", url, body)
-	if err != nil {
-		return err
+	headers := map[string]string{
+		"Content-Type": writer.FormDataContentType(),
 	}
-	req.Header.Set("Authorization", "Bearer "+pm.accessToken)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	resp, err := pm.client.Do(req)
+	resp, err := pm.authManager.AuthenticatedDo("POST", url, body.Bytes(), headers)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		// Read body for error message

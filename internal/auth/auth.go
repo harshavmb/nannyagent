@@ -535,6 +535,85 @@ func (am *AuthManager) GetCurrentAccessToken() (string, error) {
 	return token.AccessToken, nil
 }
 
+// AuthenticatedDo performs an HTTP request with automatic token injection,
+// retry logic (5 attempts, 60s delay), and token refreshing on 401.
+func (am *AuthManager) AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error) {
+	var lastErr error
+
+	for attempt := 1; attempt <= 6; attempt++ {
+		// Load token
+		token, err := am.LoadToken()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load token: %w", err)
+		}
+
+		req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		// Set default content type if not provided
+		if _, ok := headers["Content-Type"]; !ok {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+
+		resp, err := am.client.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(60 * time.Second)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusUnauthorized {
+			_ = resp.Body.Close()
+			// Try refresh
+			logging.Info("Token expired, refreshing...")
+			newTokenResp, err := am.RefreshAccessToken(token.RefreshToken)
+			if err != nil {
+				lastErr = fmt.Errorf("failed to refresh token: %w", err)
+				time.Sleep(60 * time.Second)
+				continue
+			}
+
+			// Save new token
+			newToken := &types.AuthToken{
+				AccessToken:  newTokenResp.AccessToken,
+				RefreshToken: newTokenResp.RefreshToken,
+				TokenType:    newTokenResp.TokenType,
+				ExpiresAt:    time.Now().Add(time.Duration(newTokenResp.ExpiresIn) * time.Second),
+				AgentID:      token.AgentID,
+			}
+			if err := am.SaveToken(newToken); err != nil {
+				lastErr = fmt.Errorf("failed to save new token: %w", err)
+				time.Sleep(60 * time.Second)
+				continue
+			}
+
+			// Retry immediately with new token
+			continue
+		}
+
+		// If 5xx, sleep and retry
+		if resp.StatusCode >= 500 {
+			_ = resp.Body.Close()
+			lastErr = fmt.Errorf("server error: %d", resp.StatusCode)
+			time.Sleep(60 * time.Second)
+			continue
+		}
+
+		// Success or other error
+		return resp, nil
+	}
+
+	return nil, fmt.Errorf("request failed after 5 attempts: %v", lastErr)
+}
+
 // Helper functions
 
 func (am *AuthManager) getTokenPath() string {

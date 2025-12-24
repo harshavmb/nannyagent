@@ -97,7 +97,7 @@ func (c *Client) Start() {
 		}
 
 		if !connectSuccess {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			logging.Warning("Failed to get Client ID, retrying in 5s...")
 			time.Sleep(5 * time.Second)
 			continue
@@ -119,7 +119,7 @@ func (c *Client) Start() {
 		subResp, err := http.DefaultClient.Do(req)
 		if err != nil || subResp.StatusCode != 204 {
 			logging.Error("Subscription failed: %v", err)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			time.Sleep(5 * time.Second)
 			continue
 		}
@@ -196,8 +196,6 @@ func (c *Client) Start() {
 						investigationID = fmt.Sprintf("%v", id)
 					}
 
-					logging.Info("[RECEIVED] Action: %s | Prompt: %s", msg.Action, prompt)
-
 					// Trigger investigation if it's a create action and we have necessary data
 					if msg.Action == "create" && prompt != "N/A" && investigationID != "" {
 						logging.Info("Triggering investigation %s...", investigationID)
@@ -214,7 +212,7 @@ func (c *Client) Start() {
 		}
 
 		// Close body and wait before reconnecting
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		logging.Info("Reconnecting in 5 seconds...")
 		time.Sleep(5 * time.Second)
 	}

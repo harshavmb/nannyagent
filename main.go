@@ -137,7 +137,7 @@ func validateDiagnosisPrompt(prompt string) error {
 }
 
 // testAPIConnectivity tests if we can reach the API endpoint using PocketBase
-func testAPIConnectivity(cfg *config.Config, accessToken string, agentID string) error {
+func testAPIConnectivity(cfg *config.Config, authManager *auth.AuthManager, agentID string) error {
 	// Test by sending metrics to PocketBase /api/agent endpoint
 	metricsCollector := metrics.NewCollector(Version, cfg.APIBaseURL)
 	systemMetrics, err := metricsCollector.GatherSystemMetrics()
@@ -145,7 +145,7 @@ func testAPIConnectivity(cfg *config.Config, accessToken string, agentID string)
 		return fmt.Errorf("failed to gather metrics: %w", err)
 	}
 
-	err = metricsCollector.IngestMetrics(agentID, accessToken, systemMetrics)
+	err = metricsCollector.IngestMetrics(agentID, authManager, systemMetrics)
 	if err != nil {
 		return fmt.Errorf("metrics ingestion failed: %w", err)
 	}
@@ -283,7 +283,7 @@ func runStatusCommand() {
 
 	// Load and refresh token if needed
 	authManager := auth.NewAuthManager(cfg)
-	token, err := authManager.EnsureAuthenticated()
+	_, err = authManager.EnsureAuthenticated()
 	if err != nil {
 		fmt.Println("Authentication failed")
 		os.Exit(1)
@@ -306,7 +306,7 @@ func runStatusCommand() {
 		os.Exit(1)
 	}
 
-	err = metricsCollector.IngestMetrics(agentID, token.AccessToken, systemMetrics)
+	err = metricsCollector.IngestMetrics(agentID, authManager, systemMetrics)
 	if err != nil {
 		fmt.Println("Metrics ingestion failed")
 		os.Exit(1)
@@ -457,7 +457,7 @@ func main() {
 	//pbClient := metrics.NewPocketBaseClient(cfg.APIBaseURL)
 
 	// Ensure authentication
-	token, err := authManager.EnsureAuthenticated()
+	_, err = authManager.EnsureAuthenticated()
 	if err != nil {
 		logging.Error("Authentication failed: %v", err)
 		os.Exit(1)
@@ -472,7 +472,7 @@ func main() {
 
 	// Test API connectivity with authenticated token
 	logging.Info("Testing connectivity to PocketBase API...")
-	if err := testAPIConnectivity(cfg, token.AccessToken, agentID); err != nil {
+	if err := testAPIConnectivity(cfg, authManager, agentID); err != nil {
 		logging.Error("Cannot connect to PocketBase API: %v", err)
 		logging.Error("Endpoint: %s", cfg.APIBaseURL)
 		logging.Error("Please check:")
@@ -516,8 +516,6 @@ func main() {
 	go func() {
 		// Define the handler for investigations
 		investigationHandler := func(id, prompt string) {
-			logging.Info("Triggering investigation %s...", id)
-
 			// Create a new agent instance for this investigation to ensure isolation
 			investigationAgent := agent.NewLinuxDiagnosticAgentWithAuth(authManager)
 			investigationAgent.SetInvestigationID(id)
@@ -534,7 +532,7 @@ func main() {
 			logging.Info("Triggering patch operation %s (mode: %s)...", payload.OperationID, payload.Mode)
 
 			// Create patch manager
-			patchManager := patches.NewPatchManager(cfg.APIBaseURL, accessToken, agentID)
+			patchManager := patches.NewPatchManager(cfg.APIBaseURL, authManager, agentID)
 
 			if err := patchManager.HandlePatchOperation(payload); err != nil {
 				logging.Error("Patch operation %s failed: %v", payload.OperationID, err)
@@ -548,6 +546,34 @@ func main() {
 		pbURL := cfg.APIBaseURL
 		realtimeClient := realtime.NewClient(pbURL, accessToken, investigationHandler, patchHandler)
 		realtimeClient.Start()
+	}()
+
+	// Start metrics ingestion in a separate goroutine
+	go func() {
+		logging.Info("Starting metrics ingestion (interval: %ds)...", cfg.MetricsInterval)
+		metricsCollector := metrics.NewCollector(Version, cfg.APIBaseURL)
+		ticker := time.NewTicker(time.Duration(cfg.MetricsInterval) * time.Second)
+		defer ticker.Stop()
+
+		// Ingest immediately on start
+		systemMetrics, err := metricsCollector.GatherSystemMetrics()
+		if err == nil {
+			if err := metricsCollector.IngestMetrics(agentID, authManager, systemMetrics); err != nil {
+				logging.Error("Failed to ingest initial metrics: %v", err)
+			}
+		}
+
+		for range ticker.C {
+			systemMetrics, err := metricsCollector.GatherSystemMetrics()
+			if err != nil {
+				logging.Error("Failed to gather metrics: %v", err)
+				continue
+			}
+
+			if err := metricsCollector.IngestMetrics(agentID, authManager, systemMetrics); err != nil {
+				logging.Error("Failed to ingest metrics: %v", err)
+			}
+		}
 	}()
 
 	// Check if running in daemon mode

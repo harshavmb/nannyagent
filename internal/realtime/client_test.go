@@ -12,27 +12,28 @@ func TestClient_Start(t *testing.T) {
 	// Create a mock SSE server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/realtime" {
-			if r.Method == "GET" {
+			switch r.Method {
+			case "GET":
 				// Handshake
 				w.Header().Set("Content-Type", "text/event-stream")
 				w.Header().Set("Cache-Control", "no-cache")
 				w.Header().Set("Connection", "keep-alive")
 
 				// Send clientId
-				fmt.Fprintf(w, "data: {\"clientId\": \"test-client-id\"}\n\n")
+				_, _ = fmt.Fprintf(w, "data: {\"clientId\": \"test-client-id\"}\n\n")
 				w.(http.Flusher).Flush()
 
 				// Wait for subscription (simulated)
 				time.Sleep(100 * time.Millisecond)
 
 				// Send an event
-				fmt.Fprintf(w, "data: {\"action\": \"create\", \"record\": {\"id\": \"inv-123\", \"user_prompt\": \"test prompt\"}}\n\n")
+				_, _ = fmt.Fprintf(w, "data: {\"action\": \"create\", \"record\": {\"id\": \"inv-123\", \"user_prompt\": \"test prompt\"}}\n\n")
 				w.(http.Flusher).Flush()
 
 				// Keep connection open for a bit
 				time.Sleep(1 * time.Second)
 				return
-			} else if r.Method == "POST" {
+			case "POST":
 				// Subscription
 				w.WriteHeader(http.StatusNoContent)
 				return

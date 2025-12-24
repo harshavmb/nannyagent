@@ -1,6 +1,7 @@
 package patches
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,24 @@ import (
 
 	"nannyagentv2/internal/types"
 )
+
+type MockAuthManager struct {
+	Token string
+}
+
+func (m *MockAuthManager) AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error) {
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("Authorization", "Bearer "+m.Token)
+
+	return http.DefaultClient.Do(req)
+}
 
 func TestPatchManager_DownloadScript(t *testing.T) {
 	// Create a test server
@@ -23,18 +42,19 @@ func TestPatchManager_DownloadScript(t *testing.T) {
 
 		// Return a simple script
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("#!/bin/bash\necho 'test'\n"))
+		_, _ = w.Write([]byte("#!/bin/bash\necho 'test'\n"))
 	}))
 	defer ts.Close()
 
-	pm := NewPatchManager(ts.URL, "test-token", "test-agent-id")
+	mockAuth := &MockAuthManager{Token: "test-token"}
+	pm := NewPatchManager(ts.URL, mockAuth, "test-agent-id")
 
 	// Create temp directory
 	tmpDir, err := os.MkdirTemp("", "patch-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	scriptPath := filepath.Join(tmpDir, "script.sh")
 
@@ -77,18 +97,19 @@ func TestPatchManager_ValidateScript(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer ts.Close()
 
-	pm := NewPatchManager(ts.URL, "test-token", "test-agent-id")
+	mockAuth := &MockAuthManager{Token: "test-token"}
+	pm := NewPatchManager(ts.URL, mockAuth, "test-agent-id")
 
 	// Create temp file with known content
 	tmpDir, err := os.MkdirTemp("", "patch-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	scriptPath := filepath.Join(tmpDir, "script.sh")
 	err = os.WriteFile(scriptPath, []byte("hello world"), 0644)
@@ -115,18 +136,19 @@ func TestPatchManager_ValidateScript_Mismatch(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer ts.Close()
 
-	pm := NewPatchManager(ts.URL, "test-token", "test-agent-id")
+	mockAuth := &MockAuthManager{Token: "test-token"}
+	pm := NewPatchManager(ts.URL, mockAuth, "test-agent-id")
 
 	// Create temp file
 	tmpDir, err := os.MkdirTemp("", "patch-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	scriptPath := filepath.Join(tmpDir, "script.sh")
 	err = os.WriteFile(scriptPath, []byte("hello world"), 0644)
@@ -157,11 +179,12 @@ func TestPatchManager_HandlePatchOperation_DryRun(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		serverCalls[r.URL.Path]++
 
-		if r.URL.Path == "/api/files/test/test-script-id/script.sh" || r.URL.Path == "/test/script.sh" {
+		switch r.URL.Path {
+		case "/api/files/test/test-script-id/script.sh", "/test/script.sh":
 			// Return a simple dry-run script
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("#!/bin/bash\necho 'Dry run complete'\nexit 0\n"))
-		} else if r.URL.Path == "/api/scripts/test-script-id/validate" {
+			_, _ = w.Write([]byte("#!/bin/bash\necho 'Dry run complete'\nexit 0\n"))
+		case "/api/scripts/test-script-id/validate":
 			// Return validation response (SHA256 of the script above)
 			resp := map[string]string{
 				"id":     "test-script-id",
@@ -169,18 +192,19 @@ func TestPatchManager_HandlePatchOperation_DryRun(t *testing.T) {
 				"name":   "test-script.sh",
 			}
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(resp)
-		} else if r.URL.Path == "/api/patches/test-op-id/result" {
+			_ = json.NewEncoder(w).Encode(resp)
+		case "/api/patches/test-op-id/result":
 			// Accept the result upload
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"status":"updated"}`))
-		} else {
+			_, _ = w.Write([]byte(`{"status":"updated"}`))
+		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
 	defer ts.Close()
 
-	pm := NewPatchManager(ts.URL, "test-token", "test-agent-id")
+	mockAuth := &MockAuthManager{Token: "test-token"}
+	pm := NewPatchManager(ts.URL, mockAuth, "test-agent-id")
 
 	payload := types.AgentPatchPayload{
 		OperationID: "test-op-id",

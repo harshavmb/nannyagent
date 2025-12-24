@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -301,7 +300,9 @@ func (c *Collector) getAllIPs() []string {
 
 // IngestMetrics sends system metrics to PocketBase /api/agent endpoint
 // agentID is required for upsert operation - metrics will be updated for same agent
-func (c *Collector) IngestMetrics(agentID string, accessToken string, systemMetrics *types.SystemMetrics) error {
+func (c *Collector) IngestMetrics(agentID string, authManager interface {
+	AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error)
+}, systemMetrics *types.SystemMetrics) error {
 	logging.Debug("Ingesting metrics for agent %s", agentID)
 
 	// Convert SystemMetrics to PocketBaseSystemMetrics format
@@ -330,15 +331,8 @@ func (c *Collector) IngestMetrics(agentID string, accessToken string, systemMetr
 
 	// Send request to PocketBase /api/agent endpoint with authorization
 	url := fmt.Sprintf("%s/api/agent", c.apiBaseURL)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return fmt.Errorf("failed to create metrics request: %w", err)
-	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
-
-	resp, err := c.client.Do(req)
+	resp, err := authManager.AuthenticatedDo("POST", url, jsonData, nil)
 	if err != nil {
 		return fmt.Errorf("failed to send metrics: %w", err)
 	}

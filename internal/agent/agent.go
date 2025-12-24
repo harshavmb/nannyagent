@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -375,110 +374,36 @@ func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatComp
 	endpoint := fmt.Sprintf("%s/api/investigations", pocketbaseURL)
 	logging.Debug("Calling investigations endpoint at: %s", endpoint)
 	logging.Info("[TENSORZERO_API] POST %s:", endpoint)
-	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(requestBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
 
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	var resp *http.Response
 
-	// Add authentication - REQUIRED for /api/investigations endpoint
+	// Use AuthenticatedDo if available
 	if a.authManager != nil {
-		// The authManager should be *auth.AuthManager, so let's use the exact same pattern
 		if authMgr, ok := a.authManager.(interface {
-			LoadToken() (*types.AuthToken, error)
+			AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error)
 		}); ok {
-			if authToken, err := authMgr.LoadToken(); err == nil && authToken != nil && authToken.AccessToken != "" {
-				req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", authToken.AccessToken))
-				logging.Debug("[TENSORZERO_API] Authorization header set with token")
-			} else {
-				logging.Warning("[TENSORZERO_API] Failed to load auth token for authorization header")
+			headers := map[string]string{
+				"Content-Type": "application/json",
+				"Accept":       "application/json",
 			}
+			resp, err = authMgr.AuthenticatedDo("POST", endpoint, requestBody, headers)
 		} else {
-			logging.Warning("[TENSORZERO_API] Auth manager does not support LoadToken interface")
+			return nil, fmt.Errorf("auth manager does not support AuthenticatedDo")
 		}
 	} else {
-		logging.Warning("[TENSORZERO_API] No auth manager available for authorization header")
+		return nil, fmt.Errorf("authentication required")
 	}
 
-	// Send request with retry logic (up to 5 attempts with longer timeout)
-	client := &http.Client{Timeout: 60 * time.Second}
-	var resp *http.Response
-	var lastErr error
-
-	for attempt := 1; attempt <= 5; attempt++ {
-		resp, err = client.Do(req)
-		if err == nil {
-			break
-		}
-
-		lastErr = err
-		logging.Warning("Request attempt %d/5 failed: %v", attempt, err)
-
-		if attempt < 5 {
-			// Exponential backoff: 2s, 4s, 8s, 16s
-			backoff := time.Duration(1<<uint(attempt)) * time.Second
-			logging.Info("Retrying in %v...", backoff)
-			time.Sleep(backoff)
-		}
-	}
-
-	if lastErr != nil {
-		return nil, fmt.Errorf("failed to send request after 5 attempts: %w", lastErr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	// Check status code
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-
-		// Handle 401 Unauthorized - try to refresh token
-		if resp.StatusCode == 401 && a.authManager != nil {
-			if authMgr, ok := a.authManager.(interface {
-				LoadToken() (*types.AuthToken, error)
-				RefreshAccessToken(string) (*types.TokenResponse, error)
-				SaveToken(*types.AuthToken) error
-			}); ok {
-				// Load current token to get refresh token
-				if currentToken, err := authMgr.LoadToken(); err == nil && currentToken != nil && currentToken.RefreshToken != "" {
-					// Refresh the access token
-					if tokenResp, err := authMgr.RefreshAccessToken(currentToken.RefreshToken); err == nil {
-						// Save the new token
-						newToken := &types.AuthToken{
-							AccessToken:  tokenResp.AccessToken,
-							RefreshToken: tokenResp.RefreshToken,
-							TokenType:    tokenResp.TokenType,
-							ExpiresAt:    time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
-							AgentID:      currentToken.AgentID, // Keep existing agent ID
-						}
-						if err := authMgr.SaveToken(newToken); err == nil {
-							// Update the Authorization header with new token
-							req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", newToken.AccessToken))
-
-							// Retry the request with new token
-							resp, err = client.Do(req)
-							if err != nil {
-								return nil, fmt.Errorf("failed to send request after token refresh: %w", err)
-							}
-							defer func() { _ = resp.Body.Close() }() // If still not 200, fall through to error below
-							if resp.StatusCode == 200 {
-								// Success! Continue with normal response processing
-								goto parseResponse
-							}
-
-							body, _ = io.ReadAll(resp.Body)
-						}
-					}
-				}
-			}
-		}
-
 		return nil, fmt.Errorf("TensorZero proxy error: %d, body: %s", resp.StatusCode, string(body))
 	}
-
-parseResponse:
 
 	// Parse response
 	var tzResponse map[string]interface{}
