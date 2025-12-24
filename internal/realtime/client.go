@@ -157,26 +157,29 @@ func (c *Client) Start() {
 						// Try to parse as patch operation first
 						if operationID, ok := msg.Record["id"].(string); ok {
 							if mode, okMode := msg.Record["mode"].(string); okMode {
-								if scriptURL, okURL := msg.Record["script_url"].(string); okURL {
-									// This is a patch operation
-									payload := types.AgentPatchPayload{
-										OperationID: operationID,
-										Mode:        mode,
-										ScriptURL:   scriptURL,
-										Timestamp:   time.Now().Format(time.RFC3339),
-									}
+								if scriptID, okScript := msg.Record["script_id"].(string); okScript {
+									if scriptURL, okURL := msg.Record["script_url"].(string); okURL {
+										// This is a patch operation
+										payload := types.AgentPatchPayload{
+											OperationID: operationID,
+											Mode:        mode,
+											ScriptURL:   scriptURL,
+											ScriptID:    scriptID,
+											Timestamp:   time.Now().Format(time.RFC3339),
+										}
 
-									// Optional script args
-									if args, okArgs := msg.Record["script_args"].(string); okArgs {
-										payload.ScriptArgs = args
-									}
+										// Optional script args
+										if args, okArgs := msg.Record["script_args"].(string); okArgs {
+											payload.ScriptArgs = args
+										}
 
-									logging.Info("Received patch operation: %s (mode: %s)", operationID, mode)
+										logging.Info("Received patch operation: %s (mode: %s)", operationID, mode)
 
-									if c.patchHandler != nil {
-										go c.patchHandler(payload)
+										if c.patchHandler != nil {
+											go c.patchHandler(payload)
+										}
+										continue
 									}
-									continue
 								}
 							}
 						}

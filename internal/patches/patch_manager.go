@@ -69,7 +69,15 @@ func (pm *PatchManager) HandlePatchOperation(payload types.AgentPatchPayload) er
 
 	// 4. Execute script
 	// Pass arguments: mode (dry-run/apply) and any extra args
-	args := []string{payload.Mode}
+	// Check if `--` is present in mode, if not add that prefix
+	// so as to pass it as an argument
+	var mode string
+	if !strings.HasPrefix(payload.Mode, "--") {
+		mode = fmt.Sprintf("%s%s", "--", payload.Mode)
+	} else {
+		mode = payload.Mode
+	}
+	args := []string{mode}
 	if payload.ScriptArgs != "" {
 		args = append(args, payload.ScriptArgs)
 	}

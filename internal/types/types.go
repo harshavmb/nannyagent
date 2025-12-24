@@ -548,6 +548,7 @@ const (
 type AgentPatchPayload struct {
 	OperationID string `json:"operation_id"`
 	Mode        string `json:"mode"` // dry-run or apply
+	ScriptID    string `json:"script_id"`
 	ScriptURL   string `json:"script_url"`
 	ScriptArgs  string `json:"script_args"`
 	Timestamp   string `json:"timestamp"`
