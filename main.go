@@ -194,7 +194,7 @@ func runRegisterCommand() {
 	}
 
 	// Ensure token path uses hardcoded DataDir
-	cfg.TokenPath = filepath.Join(DataDir, ".agent_token.json")
+	cfg.TokenPath = filepath.Join(DataDir, "token.json")
 
 	// Initialize auth manager with PocketBase URL
 	authManager := auth.NewAuthManager(cfg)
@@ -274,7 +274,7 @@ func runStatusCommand() {
 	fmt.Printf("API Endpoint: %s\n", apiURL)
 
 	// Check if token exists
-	tokenPath := filepath.Join(DataDir, ".agent_token.json")
+	tokenPath := filepath.Join(DataDir, "token.json")
 	if _, err := os.Stat(tokenPath); os.IsNotExist(err) {
 		fmt.Println("Not registered")
 		fmt.Println("\nRegister with: sudo nannyagent --register")
