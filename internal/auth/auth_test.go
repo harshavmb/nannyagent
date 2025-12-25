@@ -13,7 +13,7 @@ import (
 	"nannyagentv2/internal/types"
 )
 
-// TestNewAuthManager tests the creation of AuthManager for PocketBase
+// TestNewAuthManager tests the creation of AuthManager for NannyAPI
 func TestNewAuthManager(t *testing.T) {
 	cfg := &config.Config{
 		APIBaseURL: "http://localhost:8090",
@@ -84,9 +84,9 @@ func TestEnsureTokenStorageDir_NonRoot(t *testing.T) {
 	}
 }
 
-// TestStartDeviceAuthorization tests the PocketBase device auth request
+// TestStartDeviceAuthorization tests the NannyAPI device auth request
 func TestStartDeviceAuthorization(t *testing.T) {
-	// Create test server for PocketBase API
+	// Create test server for NannyAPI API
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("Expected POST request, got %s", r.Method)

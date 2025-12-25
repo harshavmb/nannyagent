@@ -136,9 +136,9 @@ func validateDiagnosisPrompt(prompt string) error {
 	return nil
 }
 
-// testAPIConnectivity tests if we can reach the API endpoint using PocketBase
+// testAPIConnectivity tests if we can reach the API endpoint using NannyAPI
 func testAPIConnectivity(cfg *config.Config, authManager *auth.AuthManager, agentID string) error {
-	// Test by sending metrics to PocketBase /api/agent endpoint
+	// Test by sending metrics to NannyAPI /api/agent endpoint
 	metricsCollector := metrics.NewCollector(Version, cfg.APIBaseURL)
 	systemMetrics, err := metricsCollector.GatherSystemMetrics()
 	if err != nil {
@@ -165,9 +165,9 @@ func checkExistingAgentInstance() error {
 	return nil
 }
 
-// runRegisterCommand handles agent registration with PocketBase device flow
+// runRegisterCommand handles agent registration with NannyAPI device flow
 func runRegisterCommand() {
-	logging.Info("Starting NannyAgent registration with PocketBase")
+	logging.Info("Starting NannyAgent registration with NannyAPI")
 
 	// Check if agent is already registered on this machine
 	if err := checkExistingAgentInstance(); err != nil {
@@ -183,26 +183,26 @@ func runRegisterCommand() {
 	if err != nil {
 		logging.Warning("Could not load configuration, using defaults: %v", err)
 		cfg = &config.DefaultConfig
-		cfg.APIBaseURL = os.Getenv("POCKETBASE_URL")
+		cfg.APIBaseURL = os.Getenv("NANNYAPI_URL")
 	}
 
-	// Ensure we have a PocketBase URL
+	// Ensure we have a NannyAPI URL
 	if cfg.APIBaseURL == "" {
-		logging.Error("PocketBase URL not configured")
-		logging.Error("Set POCKETBASE_URL environment variable or configure in /etc/nannyagent/config.yaml")
+		logging.Error("NannyAPI URL not configured")
+		logging.Error("Set NANNYAPI_URL environment variable or configure in /etc/nannyagent/config.yaml")
 		os.Exit(1)
 	}
 
 	// Ensure token path uses hardcoded DataDir
 	cfg.TokenPath = filepath.Join(DataDir, "token.json")
 
-	// Initialize auth manager with PocketBase URL
+	// Initialize auth manager with NannyAPI URL
 	authManager := auth.NewAuthManager(cfg)
 
 	// Collect system information for registration (used later in register request)
 
 	// Step 1: Start device authorization
-	logging.Info("Initiating PocketBase device authorization flow...")
+	logging.Info("Initiating NannyAPI device authorization flow...")
 	deviceAuth, err := authManager.StartDeviceAuthorization()
 	if err != nil {
 		logging.Error("Failed to start device authorization: %v", err)
@@ -254,7 +254,7 @@ func runRegisterCommand() {
 	os.Exit(0)
 }
 
-// runStatusCommand shows agent connectivity and status with PocketBase (stdout only)
+// runStatusCommand shows agent connectivity and status with NannyAPI (stdout only)
 func runStatusCommand() {
 	// Disable syslog for status command - everything goes to stdout only
 	logging.DisableSyslogOnly()
@@ -269,7 +269,7 @@ func runStatusCommand() {
 	// Show API endpoint
 	apiURL := cfg.APIBaseURL
 	if apiURL == "" {
-		apiURL = os.Getenv("POCKETBASE_URL")
+		apiURL = os.Getenv("NANNYAPI_URL")
 	}
 	fmt.Printf("API Endpoint: %s\n", apiURL)
 
@@ -453,8 +453,6 @@ func main() {
 
 	// Initialize components
 	authManager := auth.NewAuthManager(cfg)
-	//metricsCollector := metrics.NewCollector(Version)
-	//pbClient := metrics.NewPocketBaseClient(cfg.APIBaseURL)
 
 	// Ensure authentication
 	_, err = authManager.EnsureAuthenticated()
@@ -471,9 +469,9 @@ func main() {
 	}
 
 	// Test API connectivity with authenticated token
-	logging.Info("Testing connectivity to PocketBase API...")
+	logging.Info("Testing connectivity to NannyAPI API...")
 	if err := testAPIConnectivity(cfg, authManager, agentID); err != nil {
-		logging.Error("Cannot connect to PocketBase API: %v", err)
+		logging.Error("Cannot connect to NannyAPI API: %v", err)
 		logging.Error("Endpoint: %s", cfg.APIBaseURL)
 		logging.Error("Please check:")
 		logging.Error("  1. Network connectivity")
@@ -542,7 +540,7 @@ func main() {
 		}
 
 		// Create and start the realtime client
-		// Use POCKETBASE_URL from env or default
+		// Use NANNYAPI_URL from env or default
 		pbURL := cfg.APIBaseURL
 		realtimeClient := realtime.NewClient(pbURL, accessToken, investigationHandler, patchHandler)
 		realtimeClient.Start()

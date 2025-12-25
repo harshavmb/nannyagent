@@ -13,7 +13,7 @@ func TestLoadConfig_SystemYAML(t *testing.T) {
 
 	// Create a test YAML config
 	yamlContent := `
-api_base_url: https://test.pocketbase.io
+nannyapi_url: https://test-api.nannyai.dev
 portal_url: https://test.nannyai.dev
 token_path: /tmp/test_token.json
 metrics_interval: 60
@@ -32,8 +32,8 @@ debug: true
 	}
 
 	// Verify values
-	if config.APIBaseURL != "https://test.pocketbase.io" {
-		t.Errorf("APIBaseURL = %v, want https://test.pocketbase.io", config.APIBaseURL)
+	if config.APIBaseURL != "https://test-api.nannyai.dev" {
+		t.Errorf("APIBaseURL = %v, want https://test-api.nannyai.dev", config.APIBaseURL)
 	}
 	if config.PortalURL != "https://test.nannyai.dev" {
 		t.Errorf("PortalURL = %v, want https://test.nannyai.dev", config.PortalURL)
@@ -54,12 +54,12 @@ func TestLoadConfig_EnvFile(t *testing.T) {
 	// without relying on a .env file loader
 
 	// Set environment variables
-	_ = os.Setenv("POCKETBASE_URL", "https://env.pocketbase.io")
+	_ = os.Setenv("NANNYAPI_URL", "https://env.nannyai.dev")
 	_ = os.Setenv("TOKEN_PATH", "/tmp/env_token.json")
 	_ = os.Setenv("NANNYAI_PORTAL_URL", "https://env.nannyai.dev")
 	_ = os.Setenv("DEBUG", "true")
 	defer func() {
-		_ = os.Unsetenv("POCKETBASE_URL")
+		_ = os.Unsetenv("NANNYAPI_URL")
 		_ = os.Unsetenv("TOKEN_PATH")
 		_ = os.Unsetenv("NANNYAI_PORTAL_URL")
 		_ = os.Unsetenv("DEBUG")
@@ -69,7 +69,7 @@ func TestLoadConfig_EnvFile(t *testing.T) {
 	config := DefaultConfig
 
 	// Manually apply env vars (simulating LoadConfig behavior)
-	if url := os.Getenv("POCKETBASE_URL"); url != "" {
+	if url := os.Getenv("NANNYAPI_URL"); url != "" {
 		config.APIBaseURL = url
 	}
 	if tokenPath := os.Getenv("TOKEN_PATH"); tokenPath != "" {
@@ -83,8 +83,8 @@ func TestLoadConfig_EnvFile(t *testing.T) {
 	}
 
 	// Verify
-	if config.APIBaseURL != "https://env.pocketbase.io" {
-		t.Errorf("APIBaseURL = %v, want https://env.pocketbase.io", config.APIBaseURL)
+	if config.APIBaseURL != "https://env.nannyai.dev" {
+		t.Errorf("APIBaseURL = %v, want https://env.nannyai.dev", config.APIBaseURL)
 	}
 	if config.TokenPath != "/tmp/env_token.json" {
 		t.Errorf("TokenPath = %v, want /tmp/env_token.json", config.TokenPath)
@@ -99,7 +99,7 @@ func TestLoadConfig_EnvFile(t *testing.T) {
 
 func TestValidate_Success(t *testing.T) {
 	config := &Config{
-		APIBaseURL: "https://test.pocketbase.io",
+		APIBaseURL: "https://test-api.nannyai.dev",
 	}
 
 	err := config.Validate()
@@ -115,9 +115,9 @@ func TestValidate_MissingURL(t *testing.T) {
 
 	err := config.Validate()
 	if err == nil {
-		t.Error("Validate() expected error for missing API_BASE_URL, got nil")
+		t.Error("Validate() expected error for missing NANNYAPI_URL, got nil")
 	}
-	expectedErr := "missing required configuration: API_BASE_URL (for PocketBase) must be set"
+	expectedErr := "missing required configuration: NANNYAPI_URL (for NannyAPI) must be set"
 	if err != nil && err.Error() != expectedErr {
 		t.Errorf("Validate() error = %v, want '%s'", err, expectedErr)
 	}
@@ -130,7 +130,7 @@ func TestLoadConfig_PriorityOrder(t *testing.T) {
 
 	// Create YAML with one value
 	yamlContent := `
-api_base_url: https://yaml.pocketbase.io
+nannyapi_url: https://yaml.nannyai.dev
 portal_url: https://yaml.nannyai.dev
 `
 	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
@@ -138,9 +138,9 @@ portal_url: https://yaml.nannyai.dev
 		t.Fatalf("Failed to create test config: %v", err)
 	}
 
-	// Set environment variable for POCKETBASE_URL (should override YAML)
-	_ = os.Setenv("POCKETBASE_URL", "https://env.pocketbase.io")
-	defer func() { _ = os.Unsetenv("POCKETBASE_URL") }()
+	// Set environment variable for NANNYAPI_URL (should override YAML)
+	_ = os.Setenv("NANNYAPI_URL", "https://env.nannyai.dev")
+	defer func() { _ = os.Unsetenv("NANNYAPI_URL") }()
 
 	// Load config
 	config := DefaultConfig
@@ -150,13 +150,13 @@ portal_url: https://yaml.nannyai.dev
 	}
 
 	// Manually apply env override
-	if url := os.Getenv("POCKETBASE_URL"); url != "" {
+	if url := os.Getenv("NANNYAPI_URL"); url != "" {
 		config.APIBaseURL = url
 	}
 
-	// Verify API_BASE_URL is from ENV
-	if config.APIBaseURL != "https://env.pocketbase.io" {
-		t.Errorf("APIBaseURL = %v, want https://env.pocketbase.io", config.APIBaseURL)
+	// Verify NANNYAPI_URL is from ENV
+	if config.APIBaseURL != "https://env.nannyai.dev" {
+		t.Errorf("APIBaseURL = %v, want https://env.nannyai.dev", config.APIBaseURL)
 	}
 
 	// Verify PortalURL is from YAML (not overridden)
@@ -179,7 +179,7 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 
 	// Create invalid YAML
 	invalidYAML := `
-api_base_url: https://test.pocketbase.io
+nannyapi_url: https://test-api.nannyai.dev
 portal_url: [invalid yaml structure
 `
 	err := os.WriteFile(configPath, []byte(invalidYAML), 0644)

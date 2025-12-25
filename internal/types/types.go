@@ -87,7 +87,7 @@ type BlockDevice struct {
 	SerialNumber string `json:"serial_number"`
 }
 
-// NetworkStatsInterface represents network interface statistics (deprecated - use NetworkStats for PocketBase)
+// NetworkStatsInterface represents network interface statistics (deprecated - use NetworkStats for NannyAPI)
 type NetworkStatsInterface struct {
 	Interface   string `json:"interface"`
 	BytesRecv   uint64 `json:"bytes_recv"`
@@ -132,7 +132,7 @@ type DeviceAuthRequest struct {
 	Action string `json:"action"` // "device-auth-start"
 }
 
-// DeviceAuthResponse - response with device & user codes (PocketBase format)
+// DeviceAuthResponse - response with device & user codes (NannyAPI format)
 type DeviceAuthResponse struct {
 	DeviceCode      string `json:"device_code"`
 	UserCode        string `json:"user_code"`
@@ -214,8 +214,8 @@ type LoadAverage struct {
 	FifteenMin float64 `json:"fifteen_min"` // 15 minute load average
 }
 
-// PocketBaseSystemMetrics contains all system metrics for PocketBase
-type PocketBaseSystemMetrics struct {
+// NannyAgentSystemMetrics contains all system metrics for NannyAPI
+type NannyAgentSystemMetrics struct {
 	CPUPercent       float64           `json:"cpu_percent"`
 	CPUCores         int               `json:"cpu_cores"`
 	MemoryUsedGB     float64           `json:"memory_used_gb"`
@@ -230,10 +230,10 @@ type PocketBaseSystemMetrics struct {
 	KernelVersion    string            `json:"kernel_version"`
 }
 
-// IngestMetricsRequest - agent sends metrics to PocketBase
+// IngestMetricsRequest - agent sends metrics to NannyAPI
 type IngestMetricsRequest struct {
 	Action        string                  `json:"action"`         // "ingest-metrics"
-	SystemMetrics PocketBaseSystemMetrics `json:"system_metrics"` // System metrics (new format)
+	SystemMetrics NannyAgentSystemMetrics `json:"system_metrics"` // System metrics (new format)
 
 	// Agent metadata updates
 	OSInfo         string   `json:"os_info,omitempty"`
@@ -300,7 +300,7 @@ type HealthResponse struct {
 	Status        AgentStatus              `json:"status"`
 	Health        AgentHealthStatus        `json:"health"`
 	LastSeen      *time.Time               `json:"last_seen"`
-	LatestMetrics *PocketBaseSystemMetrics `json:"latest_metrics"` // nil if no metrics
+	LatestMetrics *NannyAgentSystemMetrics `json:"latest_metrics"` // nil if no metrics
 }
 
 // ErrorResponse - standard error response
