@@ -186,7 +186,7 @@ func (pm *PatchManager) validateScript(scriptURL, filePath string) error {
 	// Example: /api/files/scripts_collection_id/RECORD_ID/filename.sh
 	// We need RECORD_ID
 
-	// Simple parsing assuming standard PocketBase file URL structure
+	// Simple parsing assuming standard NannyAPI file URL structure
 	// Remove query params if any
 	cleanURL := scriptURL
 	if idx := strings.IndexByte(cleanURL, '?'); idx != -1 {

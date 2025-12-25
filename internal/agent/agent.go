@@ -55,7 +55,7 @@ func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
 	model := "tensorzero::function_name::diagnose_and_heal"
 
 	agent := &LinuxDiagnosticAgent{
-		client:   nil, // Not used - we use direct HTTP to PocketBase proxy
+		client:   nil, // Not used - we use direct HTTP to NannyAPI proxy
 		model:    model,
 		executor: executor.NewCommandExecutor(10 * time.Second), // 10 second timeout for commands
 		config:   DefaultAgentConfig(),                          // Default concurrent execution config
@@ -72,7 +72,7 @@ func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
 func NewLinuxDiagnosticAgentWithAuth(authManager interface{}) *LinuxDiagnosticAgent {
 
 	agent := &LinuxDiagnosticAgent{
-		client:      nil,                                           // Not used - we use direct HTTP to PocketBase proxy
+		client:      nil,                                           // Not used - we use direct HTTP to NannyAPI proxy
 		executor:    executor.NewCommandExecutor(10 * time.Second), // 10 second timeout for commands
 		config:      DefaultAgentConfig(),                          // Default concurrent execution config
 		authManager: authManager,                                   // Store auth manager for TensorZero requests
@@ -134,11 +134,11 @@ func (a *LinuxDiagnosticAgent) createInvestigation(issue string) (string, error)
 		return "", fmt.Errorf("auth manager does not support required interfaces")
 	}
 
-	// Get PocketBase URL
-	pocketbaseURL := os.Getenv("POCKETBASE_URL")
+	// Get NannyAPI URL
+	nannyAPIURL := os.Getenv("NANNYAPI_URL")
 
 	// Use investigations client
-	client := investigations.NewInvestigationsClient(pocketbaseURL)
+	client := investigations.NewInvestigationsClient(nannyAPIURL)
 	resp, err := client.CreateInvestigation(accessToken, agentID, issue, "medium")
 	if err != nil {
 		return "", fmt.Errorf("failed to create investigation: %w", err)
@@ -366,12 +366,12 @@ func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatComp
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Get PocketBase URL
-	pocketbaseURL := os.Getenv("POCKETBASE_URL")
+	// Get NannyAPI URL
+	nannyAPIURL := os.Getenv("NANNYAPI_URL")
 
 	// Create HTTP request to investigations endpoint
-	// PocketBase routes requests to /api/investigations for TensorZero integration
-	endpoint := fmt.Sprintf("%s/api/investigations", pocketbaseURL)
+	// NannyAPI routes requests to /api/investigations for TensorZero integration
+	endpoint := fmt.Sprintf("%s/api/investigations", nannyAPIURL)
 	logging.Debug("Calling investigations endpoint at: %s", endpoint)
 	logging.Info("[TENSORZERO_API] POST %s:", endpoint)
 

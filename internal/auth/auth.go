@@ -24,24 +24,24 @@ const (
 	TokenStorageFile = "token.json"
 	RefreshTokenFile = ".refresh_token"
 
-	// Polling configuration for PocketBase device auth flow
+	// Polling configuration for NannyAPI device auth flow
 	MaxPollAttempts = 60 // 5 minutes (60 * 5 seconds)
 	PollInterval    = 5 * time.Second
 )
 
-// AuthManager handles all PocketBase authentication operations
+// AuthManager handles all NannyAPI authentication operations
 type AuthManager struct {
 	config  *config.Config
 	client  *http.Client
-	baseURL string // PocketBase API URL
+	baseURL string // NannyAPI API URL
 }
 
 // NewAuthManager creates a new authentication manager
 func NewAuthManager(cfg *config.Config) *AuthManager {
-	// Get PocketBase URL from config
+	// Get NannyAPI URL from config
 	baseURL := cfg.APIBaseURL
 	if baseURL == "" {
-		baseURL = os.Getenv("POCKETBASE_URL")
+		baseURL = os.Getenv("NANNYAPI_URL")
 	}
 
 	return &AuthManager{
@@ -74,10 +74,10 @@ func (am *AuthManager) EnsureTokenStorageDir() error {
 	return nil
 }
 
-// StartDeviceAuthorization initiates the PocketBase device authorization flow
+// StartDeviceAuthorization initiates the NannyAPI device authorization flow
 // Returns device_code and user_code that user needs to authorize
 func (am *AuthManager) StartDeviceAuthorization() (*types.DeviceAuthResponse, error) {
-	logging.Info("Starting PocketBase device authorization flow...")
+	logging.Info("Starting NannyAPI device authorization flow...")
 
 	// Create the device auth request
 	payload := types.DeviceAuthRequest{
@@ -89,7 +89,7 @@ func (am *AuthManager) StartDeviceAuthorization() (*types.DeviceAuthResponse, er
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	// Send request to PocketBase /api/agent endpoint
+	// Send request to NannyAPI /api/agent endpoint
 	url := fmt.Sprintf("%s/api/agent", am.baseURL)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -250,9 +250,9 @@ func (am *AuthManager) PollForTokenAfterAuthorization(deviceCode string) (*types
 	return nil, fmt.Errorf("authorization timed out after %d attempts (5 minutes)", MaxPollAttempts)
 }
 
-// RegisterAgent performs complete PocketBase registration and returns tokens
+// RegisterAgent performs complete NannyAPI registration and returns tokens
 func (am *AuthManager) RegisterAgent(deviceCode string, hostname string, osType string, platformFamily string, version string, primaryIP string, allIPs []string, kernelVersion string) (*types.TokenResponse, error) {
-	logging.Info("Registering agent with PocketBase...")
+	logging.Info("Registering agent with NannyAPI...")
 
 	payload := types.RegisterRequest{
 		Action:         "register",
@@ -393,6 +393,21 @@ func (am *AuthManager) SaveToken(token *types.AuthToken) error {
 
 // LoadToken loads the authentication token from secure local storage
 func (am *AuthManager) LoadToken() (*types.AuthToken, error) {
+	token, err := am.loadTokenRaw()
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if token is expired (with 5-minute buffer)
+	if am.IsTokenExpired(token) {
+		return nil, fmt.Errorf("token is expired or expiring soon")
+	}
+
+	return token, nil
+}
+
+// loadTokenRaw loads the token from file without checking expiration
+func (am *AuthManager) loadTokenRaw() (*types.AuthToken, error) {
 	tokenPath := am.getTokenPath()
 
 	data, err := os.ReadFile(tokenPath)
@@ -403,11 +418,6 @@ func (am *AuthManager) LoadToken() (*types.AuthToken, error) {
 	var token types.AuthToken
 	if err := json.Unmarshal(data, &token); err != nil {
 		return nil, fmt.Errorf("failed to parse token: %w", err)
-	}
-
-	// Check if token is expired (with 5-minute buffer)
-	if time.Now().After(token.ExpiresAt.Add(-5 * time.Minute)) {
-		return nil, fmt.Errorf("token is expired or expiring soon")
 	}
 
 	return &token, nil
@@ -541,10 +551,33 @@ func (am *AuthManager) AuthenticatedDo(method, url string, body []byte, headers 
 	var lastErr error
 
 	for attempt := 1; attempt <= 6; attempt++ {
-		// Load token
-		token, err := am.LoadToken()
+		// Load token (raw, ignoring expiration check to allow refresh flow)
+		token, err := am.loadTokenRaw()
 		if err != nil {
 			return nil, fmt.Errorf("failed to load token: %w", err)
+		}
+
+		// Check if token is expired locally and try to refresh proactively
+		if am.IsTokenExpired(token) {
+			logging.Info("Token expired locally, attempting refresh before request...")
+			newTokenResp, err := am.RefreshAccessToken(token.RefreshToken)
+			if err == nil {
+				// Save new token
+				newToken := &types.AuthToken{
+					AccessToken:  newTokenResp.AccessToken,
+					RefreshToken: newTokenResp.RefreshToken,
+					TokenType:    newTokenResp.TokenType,
+					ExpiresAt:    time.Now().Add(time.Duration(newTokenResp.ExpiresIn) * time.Second),
+					AgentID:      token.AgentID,
+				}
+				if err := am.SaveToken(newToken); err == nil {
+					token = newToken // Use new token for this request
+				} else {
+					logging.Warning("Failed to save refreshed token: %v", err)
+				}
+			} else {
+				logging.Warning("Pre-request refresh failed: %v. Proceeding with existing token...", err)
+			}
 		}
 
 		req, err := http.NewRequest(method, url, bytes.NewBuffer(body))

@@ -10,7 +10,7 @@ import (
 )
 
 type Config struct {
-	// PocketBase Configuration (primary)
+	// NannyAPI Configuration (primary)
 	APIBaseURL string `yaml:"api_base_url"`
 
 	// Portal URL for device authorization
@@ -52,13 +52,17 @@ func LoadConfig() (*Config, error) {
 	}
 
 	// Load from environment variables (highest priority - overrides file config)
-	// PocketBase configuration (primary)
-	if url := os.Getenv("POCKETBASE_URL"); url != "" {
+	// NannyAPI configuration (primary)
+	if url := os.Getenv("NANNYAPI_URL"); url != "" {
 		config.APIBaseURL = url
 	}
-	// Support API_BASE_URL for backward compatibility if needed, or remove if strict
-	if url := os.Getenv("API_BASE_URL"); url != "" {
-		config.APIBaseURL = url
+	// Support NANNYAPI_URL/API_BASE_URL for backward compatibility
+	if config.APIBaseURL == "" {
+		if url := os.Getenv("NANNYAPI_URL"); url != "" {
+			config.APIBaseURL = url
+		} else if url := os.Getenv("API_BASE_URL"); url != "" {
+			config.APIBaseURL = url
+		}
 	}
 
 	if tokenPath := os.Getenv("TOKEN_PATH"); tokenPath != "" {
@@ -98,7 +102,7 @@ func loadYAMLConfig(config *Config, path string) error {
 // Validate checks if all required configuration is present
 func (c *Config) Validate() error {
 	if c.APIBaseURL == "" {
-		return fmt.Errorf("missing required configuration: API_BASE_URL (for PocketBase) must be set")
+		return fmt.Errorf("missing required configuration: API_BASE_URL (for NannyAPI) must be set")
 	}
 
 	return nil

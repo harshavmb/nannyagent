@@ -1,9 +1,10 @@
 # NannyAgent Configuration File
 # Location: /etc/nannyagent/config.yaml
 
-# PocketBase API Endpoint (required)
-# Default: http://localhost:8090
-api_base_url: "http://localhost:8090"
+# NannyAPI Endpoint (required)
+# Default: https://api.nannyai.dev
+# For local dev/testing use: http://localhost:8090
+api_base_url: "https://api.nannyai.dev"
 
 # Portal URL for device authorization (optional)
 # Default: https://nannyai.dev
