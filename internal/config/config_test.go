@@ -13,7 +13,7 @@ func TestLoadConfig_SystemYAML(t *testing.T) {
 
 	// Create a test YAML config
 	yamlContent := `
-api_base_url: https://test-api.nannyai.dev
+nannyapi_url: https://test-api.nannyai.dev
 portal_url: https://test.nannyai.dev
 token_path: /tmp/test_token.json
 metrics_interval: 60
@@ -115,9 +115,9 @@ func TestValidate_MissingURL(t *testing.T) {
 
 	err := config.Validate()
 	if err == nil {
-		t.Error("Validate() expected error for missing API_BASE_URL, got nil")
+		t.Error("Validate() expected error for missing NANNYAPI_URL, got nil")
 	}
-	expectedErr := "missing required configuration: API_BASE_URL (for NannyAPI) must be set"
+	expectedErr := "missing required configuration: NANNYAPI_URL (for NannyAPI) must be set"
 	if err != nil && err.Error() != expectedErr {
 		t.Errorf("Validate() error = %v, want '%s'", err, expectedErr)
 	}
@@ -130,7 +130,7 @@ func TestLoadConfig_PriorityOrder(t *testing.T) {
 
 	// Create YAML with one value
 	yamlContent := `
-api_base_url: https://yaml.nannyai.dev
+nannyapi_url: https://yaml.nannyai.dev
 portal_url: https://yaml.nannyai.dev
 `
 	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
@@ -154,7 +154,7 @@ portal_url: https://yaml.nannyai.dev
 		config.APIBaseURL = url
 	}
 
-	// Verify API_BASE_URL is from ENV
+	// Verify NANNYAPI_URL is from ENV
 	if config.APIBaseURL != "https://env.nannyai.dev" {
 		t.Errorf("APIBaseURL = %v, want https://env.nannyai.dev", config.APIBaseURL)
 	}
@@ -179,7 +179,7 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 
 	// Create invalid YAML
 	invalidYAML := `
-api_base_url: https://test-api.nannyai.dev
+nannyapi_url: https://test-api.nannyai.dev
 portal_url: [invalid yaml structure
 `
 	err := os.WriteFile(configPath, []byte(invalidYAML), 0644)

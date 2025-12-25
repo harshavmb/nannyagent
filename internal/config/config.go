@@ -11,7 +11,7 @@ import (
 
 type Config struct {
 	// NannyAPI Configuration (primary)
-	APIBaseURL string `yaml:"api_base_url"`
+	APIBaseURL string `yaml:"nannyapi_url"`
 
 	// Portal URL for device authorization
 	PortalURL string `yaml:"portal_url"`
@@ -56,11 +56,9 @@ func LoadConfig() (*Config, error) {
 	if url := os.Getenv("NANNYAPI_URL"); url != "" {
 		config.APIBaseURL = url
 	}
-	// Support NANNYAPI_URL/API_BASE_URL for backward compatibility
+	// Support NANNYAPI_URL for backward compatibility
 	if config.APIBaseURL == "" {
 		if url := os.Getenv("NANNYAPI_URL"); url != "" {
-			config.APIBaseURL = url
-		} else if url := os.Getenv("API_BASE_URL"); url != "" {
 			config.APIBaseURL = url
 		}
 	}
@@ -102,7 +100,7 @@ func loadYAMLConfig(config *Config, path string) error {
 // Validate checks if all required configuration is present
 func (c *Config) Validate() error {
 	if c.APIBaseURL == "" {
-		return fmt.Errorf("missing required configuration: API_BASE_URL (for NannyAPI) must be set")
+		return fmt.Errorf("missing required configuration: NANNYAPI_URL (for NannyAPI) must be set")
 	}
 
 	return nil

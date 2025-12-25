@@ -371,7 +371,7 @@ check_connectivity() {
     
     # If not set, try to grep from config.yaml if it exists
     if [ -z "$API_URL" ] && [ -f "$CONFIG_DIR/config.yaml" ]; then
-        API_URL=$(grep "api_base_url:" "$CONFIG_DIR/config.yaml" | awk '{print $2}' | tr -d '"')
+        API_URL=$(grep "nannyapi_url:" "$CONFIG_DIR/config.yaml" | awk '{print $2}' | tr -d '"')
     fi
     
     # Default if nothing found
@@ -440,7 +440,7 @@ install_binary() {
 
 # NannyAPI Endpoint (required)
 # Default: http://localhost:8090
-api_base_url: "http://localhost:8090"
+nannyapi_url: "http://localhost:8090"
 
 # Portal URL for device authorization (optional)
 # Default: https://nannyai.dev

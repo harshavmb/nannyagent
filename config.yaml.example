@@ -4,7 +4,7 @@
 # NannyAPI Endpoint (required)
 # Default: https://api.nannyai.dev
 # For local dev/testing use: http://localhost:8090
-api_base_url: "https://api.nannyai.dev"
+nannyapi_url: "https://api.nannyai.dev"
 
 # Portal URL for device authorization (optional)
 # Default: https://nannyai.dev
