@@ -59,7 +59,7 @@ func GatherSystemInfo() *SystemInfo {
 		info.Uptime = strings.TrimSpace(result.Output)
 	}
 
-	if result := executor.Execute(types.Command{ID: "load", Command: "uptime | awk -F'load average:' '{print $2}' | xargs"}); result.ExitCode == 0 {
+	if result := executor.Execute(types.Command{ID: "load", Command: "uptime | awk -F'load average:' '{print $2}' | xargs"}); result.ExitCode == 0 && result.Output != "" {
 		info.LoadAverage = strings.TrimSpace(result.Output)
 	}
 

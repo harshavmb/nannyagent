@@ -2,7 +2,6 @@ package auth
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/shirou/gopsutil/v3/host"
 
 	"nannyagentv2/internal/config"
 	"nannyagentv2/internal/logging"
@@ -23,21 +24,29 @@ const (
 	TokenStorageFile = ".agent_token.json"
 	RefreshTokenFile = ".refresh_token"
 
-	// Polling configuration
+	// Polling configuration for PocketBase device auth flow
 	MaxPollAttempts = 60 // 5 minutes (60 * 5 seconds)
 	PollInterval    = 5 * time.Second
 )
 
-// AuthManager handles all authentication-related operations
+// AuthManager handles all PocketBase authentication operations
 type AuthManager struct {
-	config *config.Config
-	client *http.Client
+	config  *config.Config
+	client  *http.Client
+	baseURL string // PocketBase API URL
 }
 
 // NewAuthManager creates a new authentication manager
 func NewAuthManager(cfg *config.Config) *AuthManager {
+	// Get PocketBase URL from config
+	baseURL := cfg.APIBaseURL
+	if baseURL == "" {
+		baseURL = os.Getenv("POCKETBASE_URL")
+	}
+
 	return &AuthManager{
-		config: cfg,
+		config:  cfg,
+		baseURL: baseURL,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -46,28 +55,33 @@ func NewAuthManager(cfg *config.Config) *AuthManager {
 
 // EnsureTokenStorageDir creates the token storage directory if it doesn't exist
 func (am *AuthManager) EnsureTokenStorageDir() error {
-	// Check if running as root
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("must run as root to create secure token storage directory")
+	tokenPath := am.getTokenPath()
+	dir := filepath.Dir(tokenPath)
+
+	// Only enforce root if we are using the default system directory
+	if dir == TokenStorageDir {
+		// Check if running as root
+		if os.Geteuid() != 0 {
+			return fmt.Errorf("must run as root to create secure token storage directory")
+		}
 	}
 
-	// Create directory with restricted permissions (0700 - only root can access)
-	if err := os.MkdirAll(TokenStorageDir, 0700); err != nil {
+	// Create directory with restricted permissions (0700)
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create token storage directory: %w", err)
 	}
 
 	return nil
 }
 
-// StartDeviceAuthorization initiates the OAuth device authorization flow
+// StartDeviceAuthorization initiates the PocketBase device authorization flow
+// Returns device_code and user_code that user needs to authorize
 func (am *AuthManager) StartDeviceAuthorization() (*types.DeviceAuthResponse, error) {
-	// Use hostname as client_id for better identification on the portal
-	hostname := getHostname()
-	clientID := fmt.Sprintf("nannyagent-%s", hostname)
+	logging.Info("Starting PocketBase device authorization flow...")
 
-	payload := map[string]interface{}{
-		"client_id": clientID,
-		"scope":     []string{"agent:register"},
+	// Create the device auth request
+	payload := types.DeviceAuthRequest{
+		Action: "device-auth-start",
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -75,7 +89,8 @@ func (am *AuthManager) StartDeviceAuthorization() (*types.DeviceAuthResponse, er
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/device/authorize", am.config.DeviceAuthURL)
+	// Send request to PocketBase /api/agent endpoint
+	url := fmt.Sprintf("%s/api/agent", am.baseURL)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -103,87 +118,214 @@ func (am *AuthManager) StartDeviceAuthorization() (*types.DeviceAuthResponse, er
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// Override verification URI with portal URL from config
-	if am.config.PortalURL != "" {
-		deviceResp.VerificationURI = fmt.Sprintf("%s/agents/register", am.config.PortalURL)
-	}
-
 	return &deviceResp, nil
 }
 
-// PollForToken polls the token endpoint until authorization is complete
-func (am *AuthManager) PollForToken(deviceCode string) (*types.TokenResponse, error) {
-	logging.Info("Waiting for user authorization...")
+// AuthorizeDeviceCode polls the device auth endpoint to authorize the device code
+// This is called after the user enters the user_code in the portal
+func (am *AuthManager) AuthorizeDeviceCode(userCode string) error {
+	logging.Info("Authorizing device code with user code: %s", userCode)
+
+	// Create authorize request
+	payload := types.AuthorizeRequest{
+		Action:   "authorize",
+		UserCode: userCode,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/agent", am.baseURL)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := am.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to authorize device code: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("device code authorization failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var authResp types.AuthorizeResponse
+	if err := json.Unmarshal(body, &authResp); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if !authResp.Success {
+		return fmt.Errorf("authorization failed: %s", authResp.Message)
+	}
+
+	logging.Info("Device code authorized successfully")
+	return nil
+}
+
+// PollForTokenAfterAuthorization polls the /api/agent endpoint until the device is authorized
+func (am *AuthManager) PollForTokenAfterAuthorization(deviceCode string) (*types.TokenResponse, error) {
+	logging.Info("Polling for device authorization... (will wait up to 5 minutes)")
 
 	for attempts := 0; attempts < MaxPollAttempts; attempts++ {
-		tokenReq := types.TokenRequest{
-			GrantType:  "urn:ietf:params:oauth:grant-type:device_code",
-			DeviceCode: deviceCode,
+		// Create register request to check if device is authorized
+		payload := types.RegisterRequest{
+			Action:         "register",
+			DeviceCode:     deviceCode,
+			Hostname:       getHostname(),
+			OSType:         getPlatform(),
+			PlatformFamily: getPlatformFamily(),
+			Version:        "1.0.0", // Will be updated by agent
 		}
 
-		jsonData, err := json.Marshal(tokenReq)
+		jsonData, err := json.Marshal(payload)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal token request: %w", err)
+			return nil, fmt.Errorf("failed to marshal register request: %w", err)
 		}
 
-		url := fmt.Sprintf("%s/token", am.config.DeviceAuthURL)
+		url := fmt.Sprintf("%s/api/agent", am.baseURL)
 		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 		if err != nil {
-			return nil, fmt.Errorf("failed to create token request: %w", err)
+			return nil, fmt.Errorf("failed to create register request: %w", err)
 		}
 
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := am.client.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("failed to poll for token: %w", err)
+			logging.Warning("Poll attempt %d failed: %v", attempts+1, err)
+			time.Sleep(PollInterval)
+			continue
 		}
 
 		body, err := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 
+		// If response body read failed, continue polling
 		if err != nil {
-			return nil, fmt.Errorf("failed to read token response: %w", err)
+			logging.Warning("Failed to read response body: %v", err)
+			time.Sleep(PollInterval)
+			continue
 		}
 
+		// Check if registration was successful
 		var tokenResp types.TokenResponse
 		if err := json.Unmarshal(body, &tokenResp); err != nil {
-			return nil, fmt.Errorf("failed to parse token response: %w", err)
+			logging.Warning("Failed to parse response: %v", err)
+			time.Sleep(PollInterval)
+			continue
 		}
 
+		// Check for errors in response
 		if tokenResp.Error != "" {
-			if tokenResp.Error == "authorization_pending" {
-				fmt.Print(".")
+			// If device not authorized yet, continue polling
+			if strings.Contains(tokenResp.Error, "device not authorized") {
+				// fmt.Print(".") // Removed to avoid direct stdout usage
 				time.Sleep(PollInterval)
 				continue
 			}
-			return nil, fmt.Errorf("authorization failed: %s", tokenResp.ErrorDescription)
+			// Other errors should be returned
+			return nil, fmt.Errorf("registration failed: %s - %s", tokenResp.Error, tokenResp.ErrorDescription)
 		}
 
+		// Success! Got tokens
 		if tokenResp.AccessToken != "" {
-			logging.Info("Authorization successful!")
+			logging.Info("\nAuthorization successful!")
 			return &tokenResp, nil
 		}
 
 		time.Sleep(PollInterval)
 	}
 
-	return nil, fmt.Errorf("authorization timed out after %d attempts", MaxPollAttempts)
+	return nil, fmt.Errorf("authorization timed out after %d attempts (5 minutes)", MaxPollAttempts)
+}
+
+// RegisterAgent performs complete PocketBase registration and returns tokens
+func (am *AuthManager) RegisterAgent(deviceCode string, hostname string, osType string, platformFamily string, version string, primaryIP string, allIPs []string, kernelVersion string) (*types.TokenResponse, error) {
+	logging.Info("Registering agent with PocketBase...")
+
+	payload := types.RegisterRequest{
+		Action:         "register",
+		DeviceCode:     deviceCode,
+		Hostname:       hostname,
+		Version:        version,
+		PrimaryIP:      primaryIP,
+		KernelVersion:  kernelVersion,
+		AllIPs:         allIPs,
+		OSType:         osType,
+		PlatformFamily: platformFamily,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal register request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/api/agent", am.baseURL)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create register request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := am.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register agent: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("agent registration failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var tokenResp types.TokenResponse
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return nil, fmt.Errorf("failed to parse registration response: %w", err)
+	}
+
+	if tokenResp.Error != "" {
+		return nil, fmt.Errorf("registration failed: %s - %s", tokenResp.Error, tokenResp.ErrorDescription)
+	}
+
+	if tokenResp.AccessToken == "" {
+		return nil, fmt.Errorf("no access token received in registration response")
+	}
+
+	logging.Info("Agent registered successfully! Agent ID: %s", tokenResp.AgentID)
+	return &tokenResp, nil
 }
 
 // RefreshAccessToken refreshes an expired access token using the refresh token
 func (am *AuthManager) RefreshAccessToken(refreshToken string) (*types.TokenResponse, error) {
-	tokenReq := types.TokenRequest{
-		GrantType:    "refresh_token",
+	logging.Debug("Attempting to refresh access token...")
+
+	payload := types.RefreshRequest{
+		Action:       "refresh",
 		RefreshToken: refreshToken,
 	}
 
-	jsonData, err := json.Marshal(tokenReq)
+	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal refresh request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/token", am.config.DeviceAuthURL)
+	url := fmt.Sprintf("%s/api/agent", am.baseURL)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create refresh request: %w", err)
@@ -215,6 +357,7 @@ func (am *AuthManager) RefreshAccessToken(refreshToken string) (*types.TokenResp
 		return nil, fmt.Errorf("token refresh failed: %s", tokenResp.ErrorDescription)
 	}
 
+	logging.Debug("Token refreshed successfully")
 	return &tokenResp, nil
 }
 
@@ -237,7 +380,8 @@ func (am *AuthManager) SaveToken(token *types.AuthToken) error {
 
 	// Also save refresh token separately for backup recovery
 	if token.RefreshToken != "" {
-		refreshTokenPath := filepath.Join(TokenStorageDir, RefreshTokenFile)
+		dir := filepath.Dir(tokenPath)
+		refreshTokenPath := filepath.Join(dir, RefreshTokenFile)
 		if err := os.WriteFile(refreshTokenPath, []byte(token.RefreshToken), 0600); err != nil {
 			// Don't fail if refresh token backup fails, just log
 			logging.Warning("Failed to save backup refresh token: %v", err)
@@ -245,7 +389,9 @@ func (am *AuthManager) SaveToken(token *types.AuthToken) error {
 	}
 
 	return nil
-} // LoadToken loads the authentication token from secure local storage
+}
+
+// LoadToken loads the authentication token from secure local storage
 func (am *AuthManager) LoadToken() (*types.AuthToken, error) {
 	tokenPath := am.getTokenPath()
 
@@ -259,7 +405,7 @@ func (am *AuthManager) LoadToken() (*types.AuthToken, error) {
 		return nil, fmt.Errorf("failed to parse token: %w", err)
 	}
 
-	// Check if token is expired
+	// Check if token is expired (with 5-minute buffer)
 	if time.Now().After(token.ExpiresAt.Add(-5 * time.Minute)) {
 		return nil, fmt.Errorf("token is expired or expiring soon")
 	}
@@ -273,24 +419,81 @@ func (am *AuthManager) IsTokenExpired(token *types.AuthToken) bool {
 	return time.Now().After(token.ExpiresAt.Add(-5 * time.Minute))
 }
 
-// RegisterDevice performs the complete device registration flow
-func (am *AuthManager) RegisterDevice() (*types.AuthToken, error) {
+// EnsureAuthenticated ensures the agent has a valid token, refreshing if necessary
+func (am *AuthManager) EnsureAuthenticated() (*types.AuthToken, error) {
+	// Try to load existing token
+	token, err := am.LoadToken()
+	if err == nil && !am.IsTokenExpired(token) {
+		return token, nil
+	}
+
+	// Try to refresh with existing refresh token
+	var refreshToken string
+	if err == nil && token.RefreshToken != "" {
+		refreshToken = token.RefreshToken
+	} else {
+		// Try to load refresh token from backup file
+		if backupRefreshToken, backupErr := am.loadRefreshTokenFromBackup(); backupErr == nil {
+			refreshToken = backupRefreshToken
+			logging.Debug("Found backup refresh token, attempting to use it...")
+		}
+	}
+
+	if refreshToken != "" {
+		refreshResp, refreshErr := am.RefreshAccessToken(refreshToken)
+		if refreshErr == nil && refreshResp.AccessToken != "" {
+			// Preserve agent_id from existing token
+			var agentID string
+			if token != nil && token.AgentID != "" {
+				agentID = token.AgentID
+			} else if refreshResp.AgentID != "" {
+				agentID = refreshResp.AgentID
+			}
+
+			newToken := &types.AuthToken{
+				AccessToken:  refreshResp.AccessToken,
+				RefreshToken: refreshToken,
+				TokenType:    refreshResp.TokenType,
+				ExpiresAt:    time.Now().Add(time.Duration(refreshResp.ExpiresIn) * time.Second),
+				AgentID:      agentID,
+			}
+
+			// Update refresh token if a new one was provided
+			if refreshResp.RefreshToken != "" {
+				newToken.RefreshToken = refreshResp.RefreshToken
+			}
+
+			if saveErr := am.SaveToken(newToken); saveErr == nil {
+				return newToken, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("no valid token available and refresh failed - registration required")
+}
+
+// CompleteDeviceAuthFlow runs the full device authorization flow
+func (am *AuthManager) CompleteDeviceAuthFlow(agentVersion string) (*types.AuthToken, error) {
 	// Step 1: Start device authorization
 	deviceAuth, err := am.StartDeviceAuthorization()
 	if err != nil {
 		return nil, fmt.Errorf("failed to start device authorization: %w", err)
 	}
 
-	logging.Info("Please visit: %s", deviceAuth.VerificationURI)
-	logging.Info("And enter code: %s", deviceAuth.UserCode)
+	logging.Info("")
+	logging.Info("════════════════════════════════════════════════")
+	logging.Info("Please visit the following link to authorize:")
+	logging.Info("User Code: %s", deviceAuth.UserCode)
+	logging.Info("════════════════════════════════════════════════")
+	logging.Info("")
 
-	// Step 2: Poll for token
-	tokenResp, err := am.PollForToken(deviceAuth.DeviceCode)
+	// Step 2: Poll for authorization (5 minutes timeout)
+	tokenResp, err := am.PollForTokenAfterAuthorization(deviceAuth.DeviceCode)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get token: %w", err)
+		return nil, fmt.Errorf("failed to get token after authorization: %w", err)
 	}
 
-	// Step 3: Create token storage
+	// Step 3: Create token structure
 	token := &types.AuthToken{
 		AccessToken:  tokenResp.AccessToken,
 		RefreshToken: tokenResp.RefreshToken,
@@ -304,94 +507,126 @@ func (am *AuthManager) RegisterDevice() (*types.AuthToken, error) {
 		return nil, fmt.Errorf("failed to save token: %w", err)
 	}
 
+	logging.Info("Token saved to %s", am.getTokenPath())
 	return token, nil
 }
 
-// EnsureAuthenticated ensures the agent has a valid token, refreshing if necessary
-func (am *AuthManager) EnsureAuthenticated() (*types.AuthToken, error) {
-	// Try to load existing token
+// GetCurrentAgentID retrieves the agent ID from the saved token
+func (am *AuthManager) GetCurrentAgentID() (string, error) {
 	token, err := am.LoadToken()
-	if err == nil && !am.IsTokenExpired(token) {
-		return token, nil
-	}
-
-	// Try to refresh with existing refresh token (even if access token is missing/expired)
-	var refreshToken string
-	if err == nil && token.RefreshToken != "" {
-		// Use refresh token from loaded token
-		refreshToken = token.RefreshToken
-	} else {
-		// Try to load refresh token from main token file even if load failed
-		if existingToken, loadErr := am.loadTokenIgnoringExpiry(); loadErr == nil && existingToken.RefreshToken != "" {
-			refreshToken = existingToken.RefreshToken
-		} else {
-			// Try to load refresh token from backup file
-			if backupRefreshToken, backupErr := am.loadRefreshTokenFromBackup(); backupErr == nil {
-				refreshToken = backupRefreshToken
-				logging.Debug("Found backup refresh token, attempting to use it...")
-			}
-		}
-	}
-
-	if refreshToken != "" {
-		logging.Debug("Attempting to refresh access token...")
-
-		refreshResp, refreshErr := am.RefreshAccessToken(refreshToken)
-		if refreshErr == nil {
-			// Get existing agent_id from current token or backup
-			var agentID string
-			if err == nil && token.AgentID != "" {
-				agentID = token.AgentID
-			} else if existingToken, loadErr := am.loadTokenIgnoringExpiry(); loadErr == nil {
-				agentID = existingToken.AgentID
-			}
-
-			// Create new token with refreshed values
-			newToken := &types.AuthToken{
-				AccessToken:  refreshResp.AccessToken,
-				RefreshToken: refreshToken, // Keep existing refresh token
-				TokenType:    refreshResp.TokenType,
-				ExpiresAt:    time.Now().Add(time.Duration(refreshResp.ExpiresIn) * time.Second),
-				AgentID:      agentID, // Preserve agent_id
-			}
-
-			// Update refresh token if a new one was provided
-			if refreshResp.RefreshToken != "" {
-				newToken.RefreshToken = refreshResp.RefreshToken
-			}
-
-			if saveErr := am.SaveToken(newToken); saveErr == nil {
-				return newToken, nil
-			}
-		} else {
-			fmt.Printf("WARNING: Token refresh failed: %v\n", refreshErr)
-		}
-	}
-
-	fmt.Println("Initiating new device registration...")
-	return am.RegisterDevice()
-}
-
-// loadTokenIgnoringExpiry loads token file without checking expiry
-func (am *AuthManager) loadTokenIgnoringExpiry() (*types.AuthToken, error) {
-	tokenPath := am.getTokenPath()
-
-	data, err := os.ReadFile(tokenPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read token file: %w", err)
+		return "", fmt.Errorf("failed to load token: %w", err)
 	}
 
-	var token types.AuthToken
-	if err := json.Unmarshal(data, &token); err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
+	if token.AgentID == "" {
+		return "", fmt.Errorf("agent ID not found in token")
 	}
 
-	return &token, nil
+	return token.AgentID, nil
 }
 
-// loadRefreshTokenFromBackup tries to load refresh token from backup file
+// GetCurrentAccessToken retrieves the current access token
+func (am *AuthManager) GetCurrentAccessToken() (string, error) {
+	token, err := am.LoadToken()
+	if err != nil {
+		return "", fmt.Errorf("failed to load token: %w", err)
+	}
+
+	return token.AccessToken, nil
+}
+
+// AuthenticatedDo performs an HTTP request with automatic token injection,
+// retry logic (5 attempts, 60s delay), and token refreshing on 401.
+func (am *AuthManager) AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error) {
+	var lastErr error
+
+	for attempt := 1; attempt <= 6; attempt++ {
+		// Load token
+		token, err := am.LoadToken()
+		if err != nil {
+			return nil, fmt.Errorf("failed to load token: %w", err)
+		}
+
+		req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		// Set default content type if not provided
+		if _, ok := headers["Content-Type"]; !ok {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+
+		resp, err := am.client.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(60 * time.Second)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusUnauthorized {
+			_ = resp.Body.Close()
+			// Try refresh
+			logging.Info("Token expired, refreshing...")
+			newTokenResp, err := am.RefreshAccessToken(token.RefreshToken)
+			if err != nil {
+				lastErr = fmt.Errorf("failed to refresh token: %w", err)
+				time.Sleep(60 * time.Second)
+				continue
+			}
+
+			// Save new token
+			newToken := &types.AuthToken{
+				AccessToken:  newTokenResp.AccessToken,
+				RefreshToken: newTokenResp.RefreshToken,
+				TokenType:    newTokenResp.TokenType,
+				ExpiresAt:    time.Now().Add(time.Duration(newTokenResp.ExpiresIn) * time.Second),
+				AgentID:      token.AgentID,
+			}
+			if err := am.SaveToken(newToken); err != nil {
+				lastErr = fmt.Errorf("failed to save new token: %w", err)
+				time.Sleep(60 * time.Second)
+				continue
+			}
+
+			// Retry immediately with new token
+			continue
+		}
+
+		// If 5xx, sleep and retry
+		if resp.StatusCode >= 500 {
+			_ = resp.Body.Close()
+			lastErr = fmt.Errorf("server error: %d", resp.StatusCode)
+			time.Sleep(60 * time.Second)
+			continue
+		}
+
+		// Success or other error
+		return resp, nil
+	}
+
+	return nil, fmt.Errorf("request failed after 5 attempts: %v", lastErr)
+}
+
+// Helper functions
+
+func (am *AuthManager) getTokenPath() string {
+	if am.config.TokenPath != "" {
+		return am.config.TokenPath
+	}
+	return filepath.Join(TokenStorageDir, TokenStorageFile)
+}
+
 func (am *AuthManager) loadRefreshTokenFromBackup() (string, error) {
-	refreshTokenPath := filepath.Join(TokenStorageDir, RefreshTokenFile)
+	tokenPath := am.getTokenPath()
+	dir := filepath.Dir(tokenPath)
+	refreshTokenPath := filepath.Join(dir, RefreshTokenFile)
 
 	data, err := os.ReadFile(refreshTokenPath)
 	if err != nil {
@@ -406,114 +641,31 @@ func (am *AuthManager) loadRefreshTokenFromBackup() (string, error) {
 	return refreshToken, nil
 }
 
-// GetCurrentAgentID retrieves the agent ID from cache or JWT token
-func (am *AuthManager) GetCurrentAgentID() (string, error) {
-	// First try to read from local cache
-	agentID, err := am.loadCachedAgentID()
-	if err == nil && agentID != "" {
-		return agentID, nil
-	}
-
-	// Cache miss - extract from JWT token and cache it
-	token, err := am.LoadToken()
-	if err != nil {
-		return "", fmt.Errorf("failed to load token: %w", err)
-	}
-
-	// Extract agent ID from JWT 'sub' field
-	agentID, err = am.extractAgentIDFromJWT(token.AccessToken)
-	if err != nil {
-		return "", fmt.Errorf("failed to extract agent ID from JWT: %w", err)
-	}
-
-	// Cache the agent ID for future use
-	if err := am.cacheAgentID(agentID); err != nil {
-		// Log warning but don't fail - we still have the agent ID
-		fmt.Printf("Warning: Failed to cache agent ID: %v\n", err)
-	}
-
-	return agentID, nil
-}
-
-// extractAgentIDFromJWT decodes the JWT token and extracts the agent ID from 'sub' field
-func (am *AuthManager) extractAgentIDFromJWT(tokenString string) (string, error) {
-	// Basic JWT decoding without verification (since we trust Supabase)
-	parts := strings.Split(tokenString, ".")
-	if len(parts) != 3 {
-		return "", fmt.Errorf("invalid JWT token format")
-	}
-
-	// Decode the payload (second part)
-	payload := parts[1]
-
-	// Add padding if needed for base64 decoding
-	for len(payload)%4 != 0 {
-		payload += "="
-	}
-
-	decoded, err := base64.URLEncoding.DecodeString(payload)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode JWT payload: %w", err)
-	}
-
-	// Parse JSON payload
-	var claims map[string]interface{}
-	if err := json.Unmarshal(decoded, &claims); err != nil {
-		return "", fmt.Errorf("failed to parse JWT claims: %w", err)
-	}
-
-	// The agent ID is in the 'sub' field (subject)
-	if agentID, ok := claims["sub"].(string); ok && agentID != "" {
-		return agentID, nil
-	}
-
-	return "", fmt.Errorf("agent ID (sub) not found in JWT claims")
-}
-
-// loadCachedAgentID reads the cached agent ID from local storage
-func (am *AuthManager) loadCachedAgentID() (string, error) {
-	agentIDPath := filepath.Join(TokenStorageDir, "agent_id")
-
-	data, err := os.ReadFile(agentIDPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read cached agent ID: %w", err)
-	}
-
-	agentID := strings.TrimSpace(string(data))
-	if agentID == "" {
-		return "", fmt.Errorf("cached agent ID is empty")
-	}
-
-	return agentID, nil
-}
-
-// cacheAgentID stores the agent ID in local cache
-func (am *AuthManager) cacheAgentID(agentID string) error {
-	// Ensure the directory exists
-	if err := am.EnsureTokenStorageDir(); err != nil {
-		return fmt.Errorf("failed to ensure storage directory: %w", err)
-	}
-
-	agentIDPath := filepath.Join(TokenStorageDir, "agent_id")
-
-	// Write agent ID to file with secure permissions
-	if err := os.WriteFile(agentIDPath, []byte(agentID), 0600); err != nil {
-		return fmt.Errorf("failed to write agent ID cache: %w", err)
-	}
-
-	return nil
-}
-
-func (am *AuthManager) getTokenPath() string {
-	if am.config.TokenPath != "" {
-		return am.config.TokenPath
-	}
-	return filepath.Join(TokenStorageDir, TokenStorageFile)
-}
-
 func getHostname() string {
 	if hostname, err := os.Hostname(); err == nil {
 		return hostname
 	}
 	return "unknown"
+}
+
+func getPlatform() string {
+	// Get platform from GOOS environment variable or default
+	platform := os.Getenv("GOOS")
+	if platform == "" {
+		// Try to detect from uname
+		platform = "linux" // Default for NannyAgent
+	}
+	return platform
+}
+
+func getPlatformFamily() string {
+	platform, family, _, err := host.PlatformInformation()
+	if err != nil {
+		return "unknown"
+	}
+	// If family is empty, use platform
+	if family == "" {
+		return platform
+	}
+	return family
 }

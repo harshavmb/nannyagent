@@ -80,7 +80,7 @@ func TestCommandExecutor_Execute_ChildProcessKilled(t *testing.T) {
 		t.Errorf("Command took too long: %v (expected ~2s)", elapsed)
 		t.Error("Process group killing is NOT working - child processes are not being killed!")
 	} else {
-		t.Logf("✓ Executor timeout correctly killed command after %v", elapsed)
+		t.Logf("Executor timeout correctly killed command after %v", elapsed)
 	}
 
 	if result.ExitCode == 0 {
