@@ -340,7 +340,7 @@ DEVICE AUTH FLOW:
   3. User enters code in portal, logs in, authorizes
   4. Agent polls POST /api/agent with action=register
   5. Once authorized, returns access_token and refresh_token
-  6. Agent saves tokens to /var/lib/nannyagent/.agent_token.json
+  6. Agent saves tokens to /var/lib/nannyagent/token.json
   7. Agent sends metrics every 30s to POST /api/agent with action=ingest-metrics
 
 METRICS INGESTION:

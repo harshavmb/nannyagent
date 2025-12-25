@@ -21,7 +21,7 @@ import (
 const (
 	// Token storage location (secure directory)
 	TokenStorageDir  = "/var/lib/nannyagent"
-	TokenStorageFile = ".agent_token.json"
+	TokenStorageFile = "token.json"
 	RefreshTokenFile = ".refresh_token"
 
 	// Polling configuration for PocketBase device auth flow
