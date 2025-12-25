@@ -76,7 +76,13 @@ func (pm *PatchManager) HandlePatchOperation(payload types.AgentPatchPayload) er
 	} else {
 		mode = payload.Mode
 	}
-	args := []string{mode}
+
+	// if mode is apply, we shouldn't pass any args
+	// patch scripts by default apply all changes unless in dry-run
+	var args []string
+	if mode != "--apply" {
+		args = []string{mode}
+	}
 	if payload.ScriptArgs != "" {
 		args = append(args, payload.ScriptArgs)
 	}

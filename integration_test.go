@@ -371,7 +371,7 @@ METRICS INGESTION:
 
 FILES MODIFIED for NannyAPI:
   internal/auth/auth.go - NannyAPI device auth implementation
-  internal/config/config.go - Added API_BASE_URL config
+  internal/config/config.go - Added NANNYAPI_URL config
   internal/metrics/collector.go - Metrics ingestion client
   internal/types/types.go - NannyAPI-compatible types
   main.go - Updated registration and metrics flows

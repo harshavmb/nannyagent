@@ -56,12 +56,6 @@ func LoadConfig() (*Config, error) {
 	if url := os.Getenv("NANNYAPI_URL"); url != "" {
 		config.APIBaseURL = url
 	}
-	// Support NANNYAPI_URL for backward compatibility
-	if config.APIBaseURL == "" {
-		if url := os.Getenv("NANNYAPI_URL"); url != "" {
-			config.APIBaseURL = url
-		}
-	}
 
 	if tokenPath := os.Getenv("TOKEN_PATH"); tokenPath != "" {
 		config.TokenPath = tokenPath
