@@ -11,12 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"nannyagentv2/internal/agent"
 	"nannyagentv2/internal/auth"
 	"nannyagentv2/internal/config"
 	"nannyagentv2/internal/logging"
 	"nannyagentv2/internal/metrics"
+	"nannyagentv2/internal/patches"
+	"nannyagentv2/internal/realtime"
 	"nannyagentv2/internal/types"
-	"nannyagentv2/internal/websocket"
 )
 
 const (
@@ -134,18 +136,18 @@ func validateDiagnosisPrompt(prompt string) error {
 	return nil
 }
 
-// testAPIConnectivity tests if we can reach the API endpoint by sending a heartbeat
-func testAPIConnectivity(cfg *config.Config, accessToken string, agentID string) error {
-	// Test by sending actual heartbeat to agent-auth-api
-	metricsCollector := metrics.NewCollector(Version)
+// testAPIConnectivity tests if we can reach the API endpoint using PocketBase
+func testAPIConnectivity(cfg *config.Config, authManager *auth.AuthManager, agentID string) error {
+	// Test by sending metrics to PocketBase /api/agent endpoint
+	metricsCollector := metrics.NewCollector(Version, cfg.APIBaseURL)
 	systemMetrics, err := metricsCollector.GatherSystemMetrics()
 	if err != nil {
 		return fmt.Errorf("failed to gather metrics: %w", err)
 	}
 
-	err = metricsCollector.SendMetrics(cfg.AgentAuthURL, accessToken, agentID, systemMetrics)
+	err = metricsCollector.IngestMetrics(agentID, authManager, systemMetrics)
 	if err != nil {
-		return fmt.Errorf("heartbeat failed: %w", err)
+		return fmt.Errorf("metrics ingestion failed: %w", err)
 	}
 
 	return nil
@@ -163,9 +165,9 @@ func checkExistingAgentInstance() error {
 	return nil
 }
 
-// runRegisterCommand handles agent registration
+// runRegisterCommand handles agent registration with PocketBase device flow
 func runRegisterCommand() {
-	logging.Info("Starting NannyAgent registration")
+	logging.Info("Starting NannyAgent registration with PocketBase")
 
 	// Check if agent is already registered on this machine
 	if err := checkExistingAgentInstance(); err != nil {
@@ -181,28 +183,69 @@ func runRegisterCommand() {
 	if err != nil {
 		logging.Warning("Could not load configuration, using defaults: %v", err)
 		cfg = &config.DefaultConfig
-		cfg.SupabaseProjectURL = "https://api.nannyai.dev"
-		cfg.DeviceAuthURL = fmt.Sprintf("%s/functions/v1/device-auth", cfg.SupabaseProjectURL)
-		cfg.AgentAuthURL = fmt.Sprintf("%s/functions/v1/agent-auth-api", cfg.SupabaseProjectURL)
+		cfg.APIBaseURL = os.Getenv("POCKETBASE_URL")
 	}
 
-	// Ensure token path uses hardcoded DataDir
-	cfg.TokenPath = filepath.Join(DataDir, "token.json")
-
-	// Initialize auth manager
-	authManager := auth.NewAuthManager(cfg)
-
-	// Run device flow
-	logging.Info("Initiating device authorization flow...")
-	token, err := authManager.EnsureAuthenticated()
-	if err != nil {
-		logging.Error("Registration failed: %v", err)
+	// Ensure we have a PocketBase URL
+	if cfg.APIBaseURL == "" {
+		logging.Error("PocketBase URL not configured")
+		logging.Error("Set POCKETBASE_URL environment variable or configure in /etc/nannyagent/config.yaml")
 		os.Exit(1)
 	}
 
-	logging.Info("✓ Registration successful!")
-	logging.Info("✓ Agent ID: %s", token.AgentID)
-	logging.Info("✓ Token saved to: %s", cfg.TokenPath)
+	// Ensure token path uses hardcoded DataDir
+	cfg.TokenPath = filepath.Join(DataDir, ".agent_token.json")
+
+	// Initialize auth manager with PocketBase URL
+	authManager := auth.NewAuthManager(cfg)
+
+	// Collect system information for registration (used later in register request)
+
+	// Step 1: Start device authorization
+	logging.Info("Initiating PocketBase device authorization flow...")
+	deviceAuth, err := authManager.StartDeviceAuthorization()
+	if err != nil {
+		logging.Error("Failed to start device authorization: %v", err)
+		os.Exit(1)
+	}
+
+	// Step 2: Display user code to user
+	logging.Info("")
+	logging.Info("════════════════════════════════════════════════════════════")
+	logging.Info("Please visit the following link to authorize this agent:")
+	logging.Info("")
+	logging.Info("Portal: https://nannyai.dev")
+	logging.Info("User Code: %s", deviceAuth.UserCode)
+	logging.Info("")
+	logging.Info("Enter the code when prompted on the portal")
+	logging.Info("════════════════════════════════════════════════════════════")
+	logging.Info("")
+
+	// Step 3: Poll for authorization with timeout (5 minutes)
+	logging.Info("Waiting for authorization (timeout in 5 minutes)...")
+	tokenResp, err := authManager.PollForTokenAfterAuthorization(deviceAuth.DeviceCode)
+	if err != nil {
+		logging.Error("Authorization failed: %v", err)
+		os.Exit(1)
+	}
+
+	// Step 4: Create and save token
+	token := &types.AuthToken{
+		AccessToken:  tokenResp.AccessToken,
+		RefreshToken: tokenResp.RefreshToken,
+		TokenType:    tokenResp.TokenType,
+		ExpiresAt:    time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
+		AgentID:      tokenResp.AgentID,
+	}
+
+	if err := authManager.SaveToken(token); err != nil {
+		logging.Error("Failed to save token: %v", err)
+		os.Exit(1)
+	}
+
+	logging.Info("Registration successful!")
+	logging.Info("Agent ID: %s", token.AgentID)
+	logging.Info("Token saved to: %s", cfg.TokenPath)
 	logging.Info("")
 	logging.Info("Next steps:")
 	logging.Info("  1. Enable and start the service: sudo systemctl enable --now nannyagent")
@@ -211,7 +254,7 @@ func runRegisterCommand() {
 	os.Exit(0)
 }
 
-// runStatusCommand shows agent connectivity and status (stdout only)
+// runStatusCommand shows agent connectivity and status with PocketBase (stdout only)
 func runStatusCommand() {
 	// Disable syslog for status command - everything goes to stdout only
 	logging.DisableSyslogOnly()
@@ -219,62 +262,64 @@ func runStatusCommand() {
 	// Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		fmt.Println("✗ Configuration: Not found")
+		fmt.Println("Configuration: Not found")
 		os.Exit(1)
 	}
 
-	fmt.Printf("✓ API Endpoint: %s\n", cfg.SupabaseProjectURL)
+	// Show API endpoint
+	apiURL := cfg.APIBaseURL
+	if apiURL == "" {
+		apiURL = os.Getenv("POCKETBASE_URL")
+	}
+	fmt.Printf("API Endpoint: %s\n", apiURL)
 
 	// Check if token exists
-	if _, err := os.Stat(cfg.TokenPath); os.IsNotExist(err) {
-		fmt.Println("✗ Not registered")
+	tokenPath := filepath.Join(DataDir, ".agent_token.json")
+	if _, err := os.Stat(tokenPath); os.IsNotExist(err) {
+		fmt.Println("Not registered")
 		fmt.Println("\nRegister with: sudo nannyagent --register")
 		os.Exit(1)
 	}
 
 	// Load and refresh token if needed
 	authManager := auth.NewAuthManager(cfg)
-	token, err := authManager.EnsureAuthenticated()
+	_, err = authManager.EnsureAuthenticated()
 	if err != nil {
-		fmt.Println("✗ Authentication failed")
+		fmt.Println("Authentication failed")
 		os.Exit(1)
 	}
 
-	// Get Agent ID from cache file or JWT
+	// Get Agent ID
 	agentID, err := authManager.GetCurrentAgentID()
 	if err != nil {
-		fmt.Println("✗ Failed to get Agent ID")
+		fmt.Println("Failed to get Agent ID")
 		os.Exit(1)
 	}
 
-	fmt.Printf("✓ Agent ID: %s\n", agentID)
+	fmt.Printf("Agent ID: %s\n", agentID)
 
-	// Test connectivity by sending a heartbeat to agent-auth-api
-	metricsCollector := metrics.NewCollector(Version)
+	// Test connectivity by sending metrics to backend API
+	metricsCollector := metrics.NewCollector(Version, cfg.APIBaseURL)
 	systemMetrics, err := metricsCollector.GatherSystemMetrics()
 	if err != nil {
-		fmt.Println("✗ Failed to gather metrics")
+		fmt.Println("Failed to gather metrics")
 		os.Exit(1)
 	}
 
-	err = metricsCollector.SendMetrics(cfg.AgentAuthURL, token.AccessToken, agentID, systemMetrics)
+	err = metricsCollector.IngestMetrics(agentID, authManager, systemMetrics)
 	if err != nil {
-		fmt.Printf("✗ API error: %v\n", err)
+		fmt.Println("Metrics ingestion failed")
 		os.Exit(1)
 	}
-
-	fmt.Println("✓ API connectivity OK")
-
-	// Check systemd service status
 	if _, err := exec.LookPath("systemctl"); err == nil {
 		cmd := exec.Command("systemctl", "is-active", "nannyagent")
 		output, _ := cmd.Output()
 		status := strings.TrimSpace(string(output))
 
 		if status == "active" {
-			fmt.Println("✓ Service running")
+			fmt.Println("Service running")
 		} else {
-			fmt.Printf("✗ Service %s\n", status)
+			fmt.Printf("Service %s\n", status)
 		}
 	}
 
@@ -282,7 +327,7 @@ func runStatusCommand() {
 }
 
 // runInteractiveDiagnostics starts the interactive diagnostic session
-func runInteractiveDiagnostics(agent *LinuxDiagnosticAgent) {
+func runInteractiveDiagnostics(diagAgent *agent.LinuxDiagnosticAgent) {
 	logging.Info("Linux Diagnostic Agent Started")
 	logging.Info("Enter a system issue description (or 'quit' to exit):")
 
@@ -318,13 +363,13 @@ func runInteractiveDiagnostics(agent *LinuxDiagnosticAgent) {
 		}
 
 		// Process the issue with AI capabilities via TensorZero
-		if err := agent.DiagnoseIssue(input); err != nil {
+		if err := diagAgent.DiagnoseIssue(input); err != nil {
 			logging.Error("Diagnosis failed: %v", err)
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		logging.Error(err.Error())
+		logging.Error("Scanner error: %v", err)
 	}
 
 	logging.Info("Goodbye!")
@@ -408,10 +453,11 @@ func main() {
 
 	// Initialize components
 	authManager := auth.NewAuthManager(cfg)
-	metricsCollector := metrics.NewCollector(Version)
+	//metricsCollector := metrics.NewCollector(Version)
+	//pbClient := metrics.NewPocketBaseClient(cfg.APIBaseURL)
 
 	// Ensure authentication
-	token, err := authManager.EnsureAuthenticated()
+	_, err = authManager.EnsureAuthenticated()
 	if err != nil {
 		logging.Error("Authentication failed: %v", err)
 		os.Exit(1)
@@ -425,22 +471,22 @@ func main() {
 	}
 
 	// Test API connectivity with authenticated token
-	logging.Info("Testing connectivity to NannyAI API...")
-	if err := testAPIConnectivity(cfg, token.AccessToken, agentID); err != nil {
-		logging.Error("Cannot connect to NannyAI API: %v", err)
-		logging.Error("Endpoint: %s", cfg.AgentAuthURL)
+	logging.Info("Testing connectivity to PocketBase API...")
+	if err := testAPIConnectivity(cfg, authManager, agentID); err != nil {
+		logging.Error("Cannot connect to PocketBase API: %v", err)
+		logging.Error("Endpoint: %s", cfg.APIBaseURL)
 		logging.Error("Please check:")
 		logging.Error("  1. Network connectivity")
 		logging.Error("  2. Firewall settings")
-		logging.Error("  3. API endpoint in /etc/nannyagent/config.yaml")
+		logging.Error("  3. API endpoint configured in /etc/nannyagent/config.yaml")
 		os.Exit(1)
 	}
-	logging.Info("✓ API connectivity OK")
+	logging.Info("API connectivity OK")
 
 	logging.Info("Authentication successful!")
 
 	// Initialize the diagnostic agent for interactive CLI use with authentication
-	agent := NewLinuxDiagnosticAgentWithAuth(authManager)
+	diagAgent := agent.NewLinuxDiagnosticAgentWithAuth(authManager)
 
 	// Handle --diagnose flag (one-off diagnosis)
 	if *diagnoseFlag != "" {
@@ -453,74 +499,80 @@ func main() {
 			os.Exit(1)
 		}
 
-		if err := agent.DiagnoseIssue(*diagnoseFlag); err != nil {
+		if err := diagAgent.DiagnoseIssue(*diagnoseFlag); err != nil {
 			logging.Error("Diagnosis failed: %v", err)
 			os.Exit(1)
 		}
 		os.Exit(0)
 	}
 
-	// Initialize a separate agent for WebSocket investigations using the application model
-	// IMPORTANT: Must use WithAuth to include authorization headers for TensorZero API calls
-	applicationAgent := NewLinuxDiagnosticAgentWithAuth(authManager)
-	applicationAgent.SetModel("tensorzero::function_name::diagnose_and_heal_application")
+	accessToken, err := authManager.GetCurrentAccessToken()
+	if err != nil {
+		logging.Error("Failed to get current access token: %v", err)
+		os.Exit(1)
+	}
 
-	// Start WebSocket client for backend communications and investigations
-	wsClient := websocket.NewWebSocketClient(applicationAgent, authManager)
+	// Start SSE connection in a separate goroutine
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logging.Error("WebSocket client panicked: %v", r)
+		// Define the handler for investigations
+		investigationHandler := func(id, prompt string) {
+			// Create a new agent instance for this investigation to ensure isolation
+			investigationAgent := agent.NewLinuxDiagnosticAgentWithAuth(authManager)
+			investigationAgent.SetInvestigationID(id)
+
+			if err := investigationAgent.DiagnoseIssueWithInvestigation(prompt); err != nil {
+				logging.Error("Investigation %s failed: %v", id, err)
+			} else {
+				logging.Info("Investigation %s completed successfully", id)
 			}
-		}()
-		if err := wsClient.Start(); err != nil {
-			logging.Error("WebSocket client error: %v", err)
 		}
+
+		// Define the handler for patch operations
+		patchHandler := func(payload types.AgentPatchPayload) {
+			logging.Info("Triggering patch operation %s (mode: %s)...", payload.OperationID, payload.Mode)
+
+			// Create patch manager
+			patchManager := patches.NewPatchManager(cfg.APIBaseURL, authManager, agentID)
+
+			if err := patchManager.HandlePatchOperation(payload); err != nil {
+				logging.Error("Patch operation %s failed: %v", payload.OperationID, err)
+			} else {
+				logging.Info("Patch operation %s completed successfully", payload.OperationID)
+			}
+		}
+
+		// Create and start the realtime client
+		// Use POCKETBASE_URL from env or default
+		pbURL := cfg.APIBaseURL
+		realtimeClient := realtime.NewClient(pbURL, accessToken, investigationHandler, patchHandler)
+		realtimeClient.Start()
 	}()
 
-	// Start background metrics collection in a goroutine
+	// Start metrics ingestion in a separate goroutine
 	go func() {
+		logging.Info("Starting metrics ingestion (interval: %ds)...", cfg.MetricsInterval)
+		metricsCollector := metrics.NewCollector(Version, cfg.APIBaseURL)
 		ticker := time.NewTicker(time.Duration(cfg.MetricsInterval) * time.Second)
 		defer ticker.Stop()
 
-		// Send initial heartbeat
-		if err := sendHeartbeat(cfg, token, metricsCollector); err != nil {
-			logging.Warning("Initial heartbeat failed: %v", err)
+		// Ingest immediately on start
+		systemMetrics, err := metricsCollector.GatherSystemMetrics()
+		if err == nil {
+			if err := metricsCollector.IngestMetrics(agentID, authManager, systemMetrics); err != nil {
+				logging.Error("Failed to ingest initial metrics: %v", err)
+			}
 		}
 
-		// Main heartbeat loop
 		for range ticker.C {
-			// Check if token needs refresh
-			if authManager.IsTokenExpired(token) {
-				newToken, refreshErr := authManager.EnsureAuthenticated()
-				if refreshErr != nil {
-					logging.Warning("Token refresh failed: %v", refreshErr)
-					continue
-				}
-				token = newToken
+			systemMetrics, err := metricsCollector.GatherSystemMetrics()
+			if err != nil {
+				logging.Error("Failed to gather metrics: %v", err)
+				continue
 			}
 
-			// Send heartbeat
-			if err := sendHeartbeat(cfg, token, metricsCollector); err != nil {
-				logging.Warning("Heartbeat failed: %v", err)
-
-				// If unauthorized, try to refresh token
-				if err.Error() == "unauthorized" {
-					logging.Debug("Unauthorized, attempting token refresh...")
-					newToken, refreshErr := authManager.EnsureAuthenticated()
-					if refreshErr != nil {
-						logging.Warning("Token refresh failed: %v", refreshErr)
-						continue
-					}
-					token = newToken
-
-					// Retry heartbeat with new token (silently)
-					if retryErr := sendHeartbeat(cfg, token, metricsCollector); retryErr != nil {
-						logging.Warning("Retry heartbeat failed: %v", retryErr)
-					}
-				}
+			if err := metricsCollector.IngestMetrics(agentID, authManager, systemMetrics); err != nil {
+				logging.Error("Failed to ingest metrics: %v", err)
 			}
-			// No logging for successful heartbeats - they should be silent
 		}
 	}()
 
@@ -539,18 +591,9 @@ func main() {
 		select {}
 	}
 
-	// Start the interactive diagnostic session (blocking)
-	runInteractiveDiagnostics(agent)
-}
-
-// sendHeartbeat collects metrics and sends heartbeat to the server
-func sendHeartbeat(cfg *config.Config, token *types.AuthToken, collector *metrics.Collector) error {
-	// Collect system metrics
-	systemMetrics, err := collector.GatherSystemMetrics()
-	if err != nil {
-		return fmt.Errorf("failed to gather system metrics: %w", err)
+	// Handle interactive mode (default if no flags)
+	if !*daemonFlag {
+		runInteractiveDiagnostics(diagAgent)
+		return
 	}
-
-	// Send metrics using the collector with correct agent_id from token
-	return collector.SendMetrics(cfg.AgentAuthURL, token.AccessToken, token.AgentID, systemMetrics)
 }

@@ -1,35 +1,42 @@
 package metrics
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
-	"github.com/shirou/gopsutil/v3/load"
 	"github.com/shirou/gopsutil/v3/mem"
-	psnet "github.com/shirou/gopsutil/v3/net"
+	"github.com/shirou/gopsutil/v3/net"
 
+	"nannyagentv2/internal/logging"
 	"nannyagentv2/internal/types"
 )
 
 // Collector handles system metrics collection
 type Collector struct {
 	agentVersion string
+	apiBaseURL   string
+	client       *http.Client
 }
 
 // NewCollector creates a new metrics collector
-func NewCollector(agentVersion string) *Collector {
+func NewCollector(agentVersion string, apiBaseURL string) *Collector {
 	return &Collector{
 		agentVersion: agentVersion,
+		apiBaseURL:   apiBaseURL,
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
@@ -37,6 +44,7 @@ func NewCollector(agentVersion string) *Collector {
 func (c *Collector) GatherSystemMetrics() (*types.SystemMetrics, error) {
 	metrics := &types.SystemMetrics{
 		Timestamp: time.Now(),
+		OSType:    runtime.GOOS,
 	}
 
 	// System Information
@@ -47,6 +55,9 @@ func (c *Collector) GatherSystemMetrics() (*types.SystemMetrics, error) {
 		metrics.PlatformVersion = hostInfo.PlatformVersion
 		metrics.KernelVersion = hostInfo.KernelVersion
 		metrics.KernelArch = hostInfo.KernelArch
+		if hostInfo.OS != "" {
+			metrics.OSType = hostInfo.OS
+		}
 	}
 
 	// CPU Metrics
@@ -83,10 +94,10 @@ func (c *Collector) GatherSystemMetrics() (*types.SystemMetrics, error) {
 	}
 
 	// Load Averages
-	if loadAvg, err := load.Avg(); err == nil {
-		metrics.LoadAvg1 = math.Round(loadAvg.Load1*100) / 100
-		metrics.LoadAvg5 = math.Round(loadAvg.Load5*100) / 100
-		metrics.LoadAvg15 = math.Round(loadAvg.Load15*100) / 100
+	if loadAvg, err := LoadAvgParse(); err == nil {
+		metrics.LoadAvg1 = loadAvg.LoadAverage1
+		metrics.LoadAvg5 = loadAvg.LoadAverage5
+		metrics.LoadAvg15 = loadAvg.LoadAverage10
 	}
 
 	// Process Count (simplified - using a constant for now)
@@ -94,18 +105,22 @@ func (c *Collector) GatherSystemMetrics() (*types.SystemMetrics, error) {
 	metrics.ProcessCount = 0 // Placeholder
 
 	// Network Metrics - convert cumulative bytes to Mbps (rounded to reasonable values)
-	netInMbps, netOutMbps := c.getNetworkStatsMbps()
-	metrics.NetworkInKbps = netInMbps * 1024 // Convert back to Kbps for field compatibility
-	metrics.NetworkOutKbps = netOutMbps * 1024
+	totalRxGB, totalTxGB, err := c.getNetworkStatsGbps()
+	if err != nil {
+		return nil, err
+	}
 
-	if netIOCounters, err := psnet.IOCounters(false); err == nil && len(netIOCounters) > 0 {
-		netIO := netIOCounters[0]
-		metrics.NetworkInBytes = netIO.BytesRecv
-		metrics.NetworkOutBytes = netIO.BytesSent
+	if totalRxGB > 0.0 && totalTxGB > 0.0 {
+		metrics.NetworkInGb = math.Round(totalRxGB*100) / 100
+		metrics.NetworkOutGb = math.Round(totalTxGB*100) / 100
+	} else {
+		metrics.NetworkInGb = 0.0
+		metrics.NetworkOutGb = 0.0
 	}
 
 	// IP Address and Location
 	metrics.IPAddress = c.getIPAddress()
+	metrics.AllIPs = c.getAllIPs()
 	metrics.Location = c.getLocation() // Placeholder
 
 	// Filesystem Information
@@ -119,18 +134,27 @@ func (c *Collector) GatherSystemMetrics() (*types.SystemMetrics, error) {
 
 // getNetworkStatsMbps returns network rates in Mbps (safe values that won't overflow)
 // Since we don't track deltas over time, we return 0 to avoid massive cumulative values
-func (c *Collector) getNetworkStatsMbps() (float64, float64) {
-	// Return 0 Mbps since we don't have proper rate calculation
-	// To calculate actual rates, we would need:
-	// 1. Store previous byte counts and timestamps
-	// 2. Calculate delta bytes / delta time
-	// 3. Convert to Mbps: (deltaBytes * 8) / (deltaSeconds * 1_000_000)
-	return 0.0, 0.0
+func (c *Collector) getNetworkStatsGbps() (totalRxGB, totalTxGB float64, err error) {
+	// Get aggregate stats for ALL interfaces
+	stats, err := net.IOCounters(false) // false = sum of all interfaces
+	if err != nil {
+		return 0, 0, err
+	}
+
+	if len(stats) == 0 {
+		return 0, 0, fmt.Errorf("no network interfaces found")
+	}
+
+	// Convert bytes to gigabytes (1 GB = 1024³ bytes)
+	totalRxGB = float64(stats[0].BytesRecv) / (1024 * 1024 * 1024)
+	totalTxGB = float64(stats[0].BytesSent) / (1024 * 1024 * 1024)
+
+	return totalRxGB, totalTxGB, nil
 }
 
 // getIPAddress returns the primary IP address of the system
 func (c *Collector) getIPAddress() string {
-	interfaces, err := psnet.Interfaces()
+	interfaces, err := net.Interfaces()
 	if err != nil {
 		return "unknown"
 	}
@@ -252,52 +276,178 @@ func (c *Collector) getBlockDevices() []types.BlockDevice {
 	return devices
 }
 
-// SendMetrics sends system metrics to the agent-auth-api endpoint
-func (c *Collector) SendMetrics(agentAuthURL, accessToken, agentID string, metrics *types.SystemMetrics) error {
-	// Create flattened metrics request for agent-auth-api
-	metricsReq := c.CreateMetricsRequest(agentID, metrics)
+// getAllIPs returns all IP addresses of the system
+func (c *Collector) getAllIPs() []string {
+	var ips []string
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return ips
+	}
 
-	return c.sendMetricsRequest(agentAuthURL, accessToken, metricsReq)
+	for _, iface := range interfaces {
+		for _, addr := range iface.Addrs {
+			// Skip loopback
+			if strings.Contains(addr.Addr, "127.0.0.1") || strings.Contains(addr.Addr, "::1") {
+				continue
+			}
+			// Remove CIDR
+			ip := strings.Split(addr.Addr, "/")[0]
+			ips = append(ips, ip)
+		}
+	}
+	return ips
 }
 
-// CreateMetricsRequest converts SystemMetrics to the flattened format expected by agent-auth-api
-func (c *Collector) CreateMetricsRequest(agentID string, systemMetrics *types.SystemMetrics) *types.MetricsRequest {
-	return &types.MetricsRequest{
-		AgentID:           agentID,
-		Hostname:          systemMetrics.Hostname,
-		CPUUsage:          systemMetrics.CPUUsage,
-		MemoryUsage:       systemMetrics.MemoryUsage,
-		DiskUsage:         systemMetrics.DiskUsage,
-		NetworkInKbps:     systemMetrics.NetworkInKbps,
-		NetworkOutKbps:    systemMetrics.NetworkOutKbps,
-		IPAddress:         systemMetrics.IPAddress,
-		Location:          systemMetrics.Location,
-		AgentVersion:      c.agentVersion,
-		KernelVersion:     systemMetrics.KernelVersion,
-		DeviceFingerprint: c.generateDeviceFingerprint(systemMetrics),
-		LoadAverages: map[string]float64{
-			"load1":  systemMetrics.LoadAvg1,
-			"load5":  systemMetrics.LoadAvg5,
-			"load15": systemMetrics.LoadAvg15,
-		},
-		OSInfo: map[string]string{
-			"cpu_cores":        fmt.Sprintf("%d", systemMetrics.CPUCores),
-			"memory":           fmt.Sprintf("%.1fGi", float64(systemMetrics.MemoryTotal)/(1024*1024*1024)),
-			"uptime":           "unknown", // Will be calculated by the server or client
-			"platform":         systemMetrics.Platform,
-			"platform_family":  systemMetrics.PlatformFamily,
-			"platform_version": systemMetrics.PlatformVersion,
-			"kernel_version":   systemMetrics.KernelVersion,
-			"kernel_arch":      systemMetrics.KernelArch,
-		},
-		FilesystemInfo: systemMetrics.FilesystemInfo,
-		BlockDevices:   systemMetrics.BlockDevices,
-		NetworkStats: map[string]uint64{
-			"bytes_sent":  c.safeCastUint64(systemMetrics.NetworkOutBytes),
-			"bytes_recv":  c.safeCastUint64(systemMetrics.NetworkInBytes),
-			"total_bytes": c.safeCastUint64(systemMetrics.NetworkInBytes + systemMetrics.NetworkOutBytes),
-		},
+// IngestMetrics sends system metrics to PocketBase /api/agent endpoint
+// agentID is required for upsert operation - metrics will be updated for same agent
+func (c *Collector) IngestMetrics(agentID string, authManager interface {
+	AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error)
+}, systemMetrics *types.SystemMetrics) error {
+	logging.Debug("Ingesting metrics for agent %s", agentID)
+
+	// Convert SystemMetrics to PocketBaseSystemMetrics format
+	pbMetrics := c.convertSystemMetrics(systemMetrics)
+
+	// Create the ingest request payload with agent_id for upsert
+	payload := types.IngestMetricsRequest{
+		Action:        "ingest-metrics",
+		SystemMetrics: pbMetrics,
+		// Populate agent metadata updates
+		OSInfo:         systemMetrics.Platform,
+		OSVersion:      systemMetrics.PlatformVersion,
+		OSType:         systemMetrics.OSType,
+		PlatformFamily: systemMetrics.PlatformFamily, // Required for patch management
+		Version:        c.agentVersion,
+		PrimaryIP:      systemMetrics.IPAddress,
+		KernelVersion:  systemMetrics.KernelVersion,
+		Arch:           systemMetrics.KernelArch,
+		AllIPs:         systemMetrics.AllIPs,
 	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metrics payload: %w", err)
+	}
+
+	// Send request to PocketBase /api/agent endpoint with authorization
+	url := fmt.Sprintf("%s/api/agent", c.apiBaseURL)
+
+	resp, err := authManager.AuthenticatedDo("POST", url, jsonData, nil)
+	if err != nil {
+		return fmt.Errorf("failed to send metrics: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Check for authorization errors
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("metrics ingestion failed: unauthorized - token may be expired")
+	}
+
+	// Check for other errors
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("metrics ingestion failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response
+	var metricsResp types.IngestMetricsResponse
+	if err := json.Unmarshal(body, &metricsResp); err != nil {
+		// If response doesn't parse as IngestMetricsResponse, check for generic error
+		logging.Warning("Could not parse metrics response: %v", err)
+		// Still consider it a success if status was OK
+		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
+			logging.Debug("Metrics ingested successfully (unparsed response)")
+			return nil
+		}
+		// If status is not OK and response didn't parse, it's an error
+		return fmt.Errorf("metrics ingestion failed with status %d: invalid response format", resp.StatusCode)
+	}
+
+	if !metricsResp.Success {
+		logging.Warning("Metrics ingestion response: %s", metricsResp.Message)
+		return fmt.Errorf("metrics ingestion failed: %s", metricsResp.Message)
+	}
+
+	logging.Debug("Metrics ingested successfully for agent %s", agentID)
+	return nil
+}
+
+// convertSystemMetrics converts internal SystemMetrics to PocketBase format
+func (c *Collector) convertSystemMetrics(systemMetrics *types.SystemMetrics) types.PocketBaseSystemMetrics {
+	// Convert filesystems to PocketBase format
+	filesystems := c.convertFilesystems(systemMetrics.FilesystemInfo)
+
+	// Calculate memory percentage
+	memoryPercent := 0.0
+	if systemMetrics.MemoryTotal > 0 {
+		memoryPercent = math.Round((float64(systemMetrics.MemoryUsed)/float64(systemMetrics.MemoryTotal))*10000) / 100
+	}
+
+	// Calculate disk usage percentage
+	diskUsagePercent := 0.0
+	if systemMetrics.DiskTotal > 0 {
+		diskUsagePercent = math.Round((float64(systemMetrics.DiskUsed)/float64(systemMetrics.DiskTotal))*10000) / 100
+	}
+
+	// Convert memory from bytes to GB
+	memoryUsedGB := float64(systemMetrics.MemoryUsed) / (1024 * 1024 * 1024)
+	memoryTotalGB := float64(systemMetrics.MemoryTotal) / (1024 * 1024 * 1024)
+
+	// Convert disk from bytes to GB
+	diskUsedGB := float64(systemMetrics.DiskUsed) / (1024 * 1024 * 1024)
+	diskTotalGB := float64(systemMetrics.DiskTotal) / (1024 * 1024 * 1024)
+
+	return types.PocketBaseSystemMetrics{
+		CPUPercent:       math.Round(systemMetrics.CPUUsage*100) / 100,
+		CPUCores:         systemMetrics.CPUCores,
+		MemoryUsedGB:     math.Round(memoryUsedGB*100) / 100,
+		MemoryTotalGB:    math.Round(memoryTotalGB*100) / 100,
+		MemoryPercent:    memoryPercent,
+		DiskUsedGB:       math.Round(diskUsedGB*100) / 100,
+		DiskTotalGB:      math.Round(diskTotalGB*100) / 100,
+		DiskUsagePercent: diskUsagePercent,
+		Filesystems:      filesystems,
+		LoadAverage: types.LoadAverage{
+			OneMin:     math.Round(systemMetrics.LoadAvg1*100) / 100,
+			FiveMin:    math.Round(systemMetrics.LoadAvg5*100) / 100,
+			FifteenMin: math.Round(systemMetrics.LoadAvg15*100) / 100,
+		},
+		NetworkStats: types.NetworkStats{
+			InGB:  systemMetrics.NetworkInGb,
+			OutGB: systemMetrics.NetworkOutGb,
+		},
+		KernelVersion: systemMetrics.KernelVersion,
+	}
+}
+
+// convertFilesystems converts filesystem info to PocketBase format
+func (c *Collector) convertFilesystems(filesystemInfo []types.FilesystemInfo) []types.FilesystemStats {
+	if len(filesystemInfo) == 0 {
+		return []types.FilesystemStats{}
+	}
+
+	filesystems := make([]types.FilesystemStats, 0, len(filesystemInfo))
+	for _, fs := range filesystemInfo {
+		// Convert bytes to GB
+		usedGB := float64(fs.Used) / (1024 * 1024 * 1024)
+		freeGB := float64(fs.Free) / (1024 * 1024 * 1024)
+		totalGB := float64(fs.Total) / (1024 * 1024 * 1024)
+
+		filesystems = append(filesystems, types.FilesystemStats{
+			Device:       fs.Device,
+			MountPath:    fs.Mountpoint,
+			UsedGB:       math.Round(usedGB*100) / 100,
+			FreeGB:       math.Round(freeGB*100) / 100,
+			TotalGB:      math.Round(totalGB*100) / 100,
+			UsagePercent: math.Round(fs.UsagePercent*100) / 100,
+		})
+	}
+
+	return filesystems
 }
 
 // safeCastUint64 caps uint64 values to prevent database numeric overflow
@@ -315,59 +465,41 @@ func (c *Collector) safeCastUint64Value(val uint64) uint64 {
 	return c.safeCastUint64(val)
 }
 
-// sendMetricsRequest sends the metrics request to the agent-auth-api
-func (c *Collector) sendMetricsRequest(agentAuthURL, accessToken string, metricsReq *types.MetricsRequest) error {
-	// Wrap metrics in the expected payload structure
-	payload := map[string]interface{}{
-		"agent_id":  metricsReq.AgentID,
-		"metrics":   metricsReq,
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-	}
-
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal metrics: %w", err)
-	}
-
-	// Send to /metrics endpoint
-	metricsURL := fmt.Sprintf("%s/metrics", agentAuthURL)
-	req, err := http.NewRequest("POST", metricsURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send metrics: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	// Read response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Check response status
-	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("unauthorized")
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("metrics request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+// Computes load average
+type Loadavg struct {
+	LoadAverage1     float64
+	LoadAverage5     float64
+	LoadAverage10    float64
+	RunningProcesses int
+	TotalProcesses   int
+	LastProcessId    int
 }
 
-// generateDeviceFingerprint creates a unique device identifier
-func (c *Collector) generateDeviceFingerprint(metrics *types.SystemMetrics) string {
-	fingerprint := fmt.Sprintf("%s-%s-%s", metrics.Hostname, metrics.Platform, metrics.KernelVersion)
-	hasher := sha256.New()
-	hasher.Write([]byte(fingerprint))
-	return fmt.Sprintf("%x", hasher.Sum(nil))[:16]
+func LoadAvgParse() (*Loadavg, error) {
+	switch runtime.GOOS {
+	case "linux":
+		return parse_linux()
+	default:
+		return nil, errors.New("loadavg unimplemented on " + runtime.GOOS)
+	}
+}
+
+func parse_linux() (*Loadavg, error) {
+	self := new(Loadavg)
+
+	raw, err := os.ReadFile("/proc/loadavg")
+	if err != nil {
+		return self, err
+	}
+
+	_, err = fmt.Sscanf(string(raw), "%f %f %f %d/%d %d",
+		&self.LoadAverage1, &self.LoadAverage5, &self.LoadAverage10,
+		&self.RunningProcesses, &self.TotalProcesses,
+		&self.LastProcessId)
+
+	if err != nil {
+		return self, err
+	}
+
+	return self, nil
 }

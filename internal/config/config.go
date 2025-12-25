@@ -3,21 +3,15 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"nannyagentv2/internal/logging"
 
-	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	// Supabase Configuration
-	SupabaseProjectURL string `yaml:"supabase_project_url"`
-
-	// Edge Function Endpoints (auto-generated from SupabaseProjectURL)
-	DeviceAuthURL string `yaml:"device_auth_url"`
-	AgentAuthURL  string `yaml:"agent_auth_url"`
+	// PocketBase Configuration (primary)
+	APIBaseURL string `yaml:"api_base_url"`
 
 	// Portal URL for device authorization
 	PortalURL string `yaml:"portal_url"`
@@ -37,16 +31,13 @@ var DefaultConfig = Config{
 	Debug:           false,
 }
 
-// LoadConfig loads configuration from YAML or .env file
+// LoadConfig loads configuration from YAML or environment variables
 func LoadConfig() (*Config, error) {
 	config := DefaultConfig
 
 	// Priority order for loading configuration:
 	// 1. /etc/nannyagent/config.yaml (system-wide YAML)
-	// 2. /etc/nannyagent/config.env (system-wide .env for backward compatibility)
-	// 3. ./config.yaml (local YAML for development)
-	// 4. ./.env file (local .env for development)
-	// 5. Environment variables (highest priority overrides)
+	// 2. Environment variables (highest priority overrides)
 
 	configLoaded := false
 
@@ -56,46 +47,18 @@ func LoadConfig() (*Config, error) {
 		configLoaded = true
 	}
 
-	// Try system-wide .env config (backward compatibility)
 	if !configLoaded {
-		if _, err := os.Stat("/etc/nannyagent/config.env"); err == nil {
-			if err := godotenv.Load("/etc/nannyagent/config.env"); err != nil {
-				logging.Warning("Could not load /etc/nannyagent/config.env: %v", err)
-			} else {
-				logging.Info("Loaded configuration from /etc/nannyagent/config.env")
-				configLoaded = true
-			}
-		}
-	}
-
-	// Try local YAML config
-	if !configLoaded {
-		if err := loadYAMLConfig(&config, "config.yaml"); err == nil {
-			logging.Info("Loaded configuration from ./config.yaml")
-			configLoaded = true
-		}
-	}
-
-	// If system config not found, try local .env file
-	if !configLoaded {
-		envFile := findEnvFile()
-		if envFile != "" {
-			if err := godotenv.Load(envFile); err != nil {
-				logging.Warning("Could not load .env file from %s: %v", envFile, err)
-			} else {
-				logging.Info("Loaded configuration from %s", envFile)
-				configLoaded = true
-			}
-		}
-	}
-
-	if !configLoaded {
-		logging.Warning("No configuration file found. Using environment variables only.")
+		logging.Warning("No configuration file found at /etc/nannyagent/config.yaml. Using environment variables only.")
 	}
 
 	// Load from environment variables (highest priority - overrides file config)
-	if url := os.Getenv("SUPABASE_PROJECT_URL"); url != "" {
-		config.SupabaseProjectURL = url
+	// PocketBase configuration (primary)
+	if url := os.Getenv("POCKETBASE_URL"); url != "" {
+		config.APIBaseURL = url
+	}
+	// Support API_BASE_URL for backward compatibility if needed, or remove if strict
+	if url := os.Getenv("API_BASE_URL"); url != "" {
+		config.APIBaseURL = url
 	}
 
 	if tokenPath := os.Getenv("TOKEN_PATH"); tokenPath != "" {
@@ -108,16 +71,6 @@ func LoadConfig() (*Config, error) {
 
 	if debug := os.Getenv("DEBUG"); debug == "true" || debug == "1" {
 		config.Debug = true
-	}
-
-	// Auto-generate edge function URLs from project URL if not explicitly set
-	if config.SupabaseProjectURL != "" {
-		if config.DeviceAuthURL == "" {
-			config.DeviceAuthURL = fmt.Sprintf("%s/functions/v1/device-auth", config.SupabaseProjectURL)
-		}
-		if config.AgentAuthURL == "" {
-			config.AgentAuthURL = fmt.Sprintf("%s/functions/v1/agent-auth-api", config.SupabaseProjectURL)
-		}
 	}
 
 	// Validate required configuration
@@ -144,40 +97,15 @@ func loadYAMLConfig(config *Config, path string) error {
 
 // Validate checks if all required configuration is present
 func (c *Config) Validate() error {
-	// Only SUPABASE_PROJECT_URL is required
-	// DeviceAuthURL and AgentAuthURL are auto-generated from it
-	if c.SupabaseProjectURL == "" {
-		return fmt.Errorf("missing required environment variable: SUPABASE_PROJECT_URL")
-	}
-
-	// Ensure auto-generated URLs are present (should be set by LoadConfig)
-	if c.DeviceAuthURL == "" || c.AgentAuthURL == "" {
-		return fmt.Errorf("failed to generate API endpoints from SUPABASE_PROJECT_URL")
+	if c.APIBaseURL == "" {
+		return fmt.Errorf("missing required configuration: API_BASE_URL (for PocketBase) must be set")
 	}
 
 	return nil
 }
 
-// findEnvFile looks for .env file in current directory and parent directories
+// findEnvFile is removed as we no longer support .env files
 func findEnvFile() string {
-	dir, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-
-	for {
-		envPath := filepath.Join(dir, ".env")
-		if _, err := os.Stat(envPath); err == nil {
-			return envPath
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-
 	return ""
 }
 
@@ -188,7 +116,7 @@ func (c *Config) PrintConfig() {
 	}
 
 	logging.Debug("Configuration:")
-	logging.Debug("  Supabase Project URL: %s", c.SupabaseProjectURL)
+	logging.Debug("  API Base URL: %s", c.APIBaseURL)
 	logging.Debug("  Metrics Interval: %d seconds", c.MetricsInterval)
 	logging.Debug("  Debug: %v", c.Debug)
 }

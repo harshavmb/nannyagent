@@ -1,15 +1,9 @@
 # NannyAgent Configuration File
 # Location: /etc/nannyagent/config.yaml
 
-# API Endpoint (required)
-# Default: https://api.nannyai.dev
-supabase_project_url: "https://<supabase-project>.supabase.co"
-
-# Device Authorization URL (optional, derived from supabase_project_url if not set)
-device_auth_url: ""
-
-# Agent Auth API URL (optional, derived from supabase_project_url if not set)
-agent_auth_url: ""
+# PocketBase API Endpoint (required)
+# Default: http://localhost:8090
+api_base_url: "http://localhost:8090"
 
 # Portal URL for device authorization (optional)
 # Default: https://nannyai.dev
