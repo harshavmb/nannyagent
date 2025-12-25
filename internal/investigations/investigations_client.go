@@ -44,7 +44,7 @@ func (ic *InvestigationsClient) CreateInvestigation(accessToken string, agentID 
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Send request to PocketBase /api/investigations endpoint
+	// Send request to NannyAPI /api/investigations endpoint
 	url := fmt.Sprintf("%s/api/investigations", ic.baseURL)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -90,7 +90,7 @@ func (ic *InvestigationsClient) UpdateInvestigation(accessToken string, investig
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Send request to PocketBase /api/investigations/{id} endpoint
+	// Send request to NannyAPI /api/investigations/{id} endpoint
 	url := fmt.Sprintf("%s/api/investigations/%s", ic.baseURL, investigationID)
 	req, err := http.NewRequest("PATCH", url, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -131,7 +131,7 @@ func (ic *InvestigationsClient) UpdateInvestigation(accessToken string, investig
 func (ic *InvestigationsClient) GetInvestigation(accessToken string, investigationID string) (*types.InvestigationResponse, error) {
 	logging.Info("Fetching investigation %s", investigationID)
 
-	// Send request to PocketBase /api/investigations/{id} endpoint
+	// Send request to NannyAPI /api/investigations/{id} endpoint
 	url := fmt.Sprintf("%s/api/investigations/%s", ic.baseURL, investigationID)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {

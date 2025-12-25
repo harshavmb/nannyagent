@@ -362,38 +362,36 @@ build_binary() {
     fi
 }
 
-# Check connectivity to Supabase
+# Check connectivity to NannyAPI
 check_connectivity() {
-    log_info "Checking connectivity to Supabase..."
+    log_info "Checking connectivity to NannyAPI..."
     
-    # Load SUPABASE_PROJECT_URL from .env if it exists
-    if [ -f ".env" ]; then
-        source .env 2>/dev/null || true
+    # Check env var first
+    API_URL="${NANNYAPI_URL}"
+    
+    # If not set, try to grep from config.yaml if it exists
+    if [ -z "$API_URL" ] && [ -f "$CONFIG_DIR/config.yaml" ]; then
+        API_URL=$(grep "nannyapi_url:" "$CONFIG_DIR/config.yaml" | awk '{print $2}' | tr -d '"')
     fi
     
-    if [ -z "$SUPABASE_PROJECT_URL" ]; then
-        log_warning "SUPABASE_PROJECT_URL not set in .env file"
-        log_warning "The agent may not work without proper configuration"
-        log_warning "Please configure $CONFIG_DIR/config.env after installation"
-        return
+    # Default if nothing found
+    if [ -z "$API_URL" ]; then
+        API_URL="http://localhost:8090"
     fi
     
-    log_info "Testing connection to $SUPABASE_PROJECT_URL..."
+    log_info "Testing connection to $API_URL..."
     
-    # Try to reach the Supabase endpoint
+    # Try to reach the endpoint
     if command -v curl &> /dev/null; then
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$SUPABASE_PROJECT_URL" || echo "000")
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 "$API_URL/api/health" || echo "000")
         
         if [ "$HTTP_CODE" = "000" ]; then
-            log_warning "Cannot connect to $SUPABASE_PROJECT_URL"
-            log_warning "Network connectivity issue detected"
-            log_warning "The agent will not work without connectivity to Supabase"
-            log_warning "Please check your network configuration and firewall settings"
-        elif [ "$HTTP_CODE" = "404" ] || [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ]; then
-            log_success "Successfully connected to Supabase (HTTP $HTTP_CODE)"
+            log_warning "Cannot connect to $API_URL"
+            log_warning "Network connectivity issue detected or server is down"
+        elif [ "$HTTP_CODE" = "200" ]; then
+            log_success "Successfully connected to NannyAPI"
         else
-            log_warning "Received HTTP $HTTP_CODE from $SUPABASE_PROJECT_URL"
-            log_warning "The agent may not work correctly"
+            log_warning "Received HTTP $HTTP_CODE from $API_URL"
         fi
     else
         log_warning "curl not found, skipping connectivity check"
@@ -416,31 +414,6 @@ create_directories() {
         exit 10
     }
     chmod 700 "$DATA_DIR"
-    
-    # Create default config.env if it doesn't exist
-    if [ ! -f "$CONFIG_DIR/config.env" ]; then
-        log_info "Creating default configuration file..."
-        cat > "$CONFIG_DIR/config.env" << 'EOF'
-# NannyAgent Configuration
-# This file is loaded by both the systemd service and manual CLI commands
-
-# Supabase Project URL (required)
-SUPABASE_PROJECT_URL=https://<supabase-project>.supabase.co
-
-# Optional: Override default portal URL
-# NANNYAI_PORTAL_URL=https://nannyai.dev
-
-# Optional: Custom token storage path
-# TOKEN_PATH=/var/lib/nannyagent/token.json
-
-# Optional: Enable debug mode
-# DEBUG=false
-EOF
-        chmod 600 "$CONFIG_DIR/config.env"
-        log_success "Default configuration created at $CONFIG_DIR/config.env"
-    else
-        log_info "Configuration file already exists at $CONFIG_DIR/config.env"
-    fi
     
     log_success "Directories created successfully"
 }
@@ -465,9 +438,9 @@ install_binary() {
 # NannyAgent Configuration File
 # Location: /etc/nannyagent/config.yaml
 
-# PocketBase API Endpoint (required)
+# NannyAPI Endpoint (required)
 # Default: http://localhost:8090
-api_base_url: "http://localhost:8090"
+nannyapi_url: "http://localhost:8090"
 
 # Portal URL for device authorization (optional)
 # Default: https://nannyai.dev
@@ -489,13 +462,6 @@ EOF
         log_success "Created default config.yaml"
     else
         log_info "Configuration file already exists at $CONFIG_DIR/config.yaml"
-    fi
-    
-    # Copy .env to config if it exists (backward compatibility)
-    if [ -f ".env" ]; then
-        log_info "Copying .env configuration to $CONFIG_DIR..."
-        cp .env "$CONFIG_DIR/config.env"
-        chmod 600 "$CONFIG_DIR/config.env"
     fi
     
     # Create lock file
@@ -535,8 +501,7 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=nannyagent
 
-# Environment
-EnvironmentFile=-/etc/nannyagent/config.env
+# Working Directory
 WorkingDirectory=/var/lib/nannyagent
 
 # Run as root (required for eBPF)
@@ -545,7 +510,9 @@ Group=root
 
 # Security hardening
 PrivateTmp=true
-ProtectSystem=strict
+## need a thorough review on this, anything else other than this fails as
+## as patching literally touches every filesystem, cannot be strict/full
+ProtectSystem=false
 ReadWritePaths=/var/lib/nannyagent
 NoNewPrivileges=false
 AmbientCapabilities=CAP_SYS_ADMIN CAP_BPF CAP_PERFMON
@@ -583,8 +550,8 @@ post_install_info() {
     echo ""
     echo "Next steps:"
     echo ""
-    echo "  1. Configure your Supabase URL in $CONFIG_DIR/config.yaml"
-    echo "     Default: https://api.nannyai.dev"
+    echo "  1. Configure your NannyAPI URL in $CONFIG_DIR/config.yaml"
+    echo "     Default: http://localhost:8090"
     echo ""
     echo "  2. Register the agent with NannyAI:"
     echo "     sudo nannyagent --register"
