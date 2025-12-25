@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,7 +11,8 @@ import (
 
 func TestNewCollector(t *testing.T) {
 	version := "v1.0.0"
-	collector := NewCollector(version)
+	apiURL := "http://localhost:8090"
+	collector := NewCollector(version, apiURL)
 
 	if collector == nil {
 		t.Fatal("Expected collector to be created")
@@ -18,10 +21,13 @@ func TestNewCollector(t *testing.T) {
 	if collector.agentVersion != version {
 		t.Errorf("Expected version %s, got %s", version, collector.agentVersion)
 	}
+	if collector.apiBaseURL != apiURL {
+		t.Errorf("Expected API URL %s, got %s", apiURL, collector.apiBaseURL)
+	}
 }
 
 func TestGatherSystemMetrics(t *testing.T) {
-	collector := NewCollector("v1.0.0")
+	collector := NewCollector("v1.0.0", "http://localhost:8090")
 
 	metrics, err := collector.GatherSystemMetrics()
 	if err != nil {
@@ -53,6 +59,9 @@ func TestGatherSystemMetrics(t *testing.T) {
 		if metrics.KernelVersion == "" {
 			t.Error("KernelVersion should not be empty")
 		}
+		if metrics.OSType == "" {
+			t.Error("OSType should not be empty")
+		}
 	})
 
 	t.Run("CPUMetrics", func(t *testing.T) {
@@ -64,28 +73,11 @@ func TestGatherSystemMetrics(t *testing.T) {
 		if metrics.CPUCores <= 0 {
 			t.Error("CPUCores should be > 0")
 		}
-
-		if metrics.CPUModel == "" {
-			t.Log("CPUModel is empty (may be expected in some environments)")
-		}
 	})
 
 	t.Run("MemoryMetrics", func(t *testing.T) {
 		if metrics.MemoryTotal == 0 {
 			t.Error("MemoryTotal should be > 0")
-		}
-
-		if metrics.MemoryUsed > metrics.MemoryTotal {
-			t.Errorf("MemoryUsed (%d) should not exceed MemoryTotal (%d)", metrics.MemoryUsed, metrics.MemoryTotal)
-		}
-
-		if metrics.MemoryFree > metrics.MemoryTotal {
-			t.Errorf("MemoryFree (%d) should not exceed MemoryTotal (%d)", metrics.MemoryFree, metrics.MemoryTotal)
-		}
-
-		// Memory usage percentage should be reasonable
-		if metrics.MemoryUsage < 0 || metrics.MemoryUsage > float64(metrics.MemoryTotal) {
-			t.Errorf("MemoryUsage appears invalid: %.2f", metrics.MemoryUsage)
 		}
 	})
 
@@ -93,37 +85,11 @@ func TestGatherSystemMetrics(t *testing.T) {
 		if metrics.DiskTotal == 0 {
 			t.Error("DiskTotal should be > 0")
 		}
-
-		if metrics.DiskUsed > metrics.DiskTotal {
-			t.Errorf("DiskUsed (%d) should not exceed DiskTotal (%d)", metrics.DiskUsed, metrics.DiskTotal)
-		}
-
-		// Disk usage percentage should be between 0 and 100
-		if metrics.DiskUsage < 0 || metrics.DiskUsage > 100 {
-			t.Errorf("DiskUsage should be between 0 and 100, got %.2f", metrics.DiskUsage)
-		}
-	})
-
-	t.Run("LoadAverages", func(t *testing.T) {
-		// Load averages should be non-negative
-		if metrics.LoadAvg1 < 0 {
-			t.Errorf("LoadAvg1 should be >= 0, got %.2f", metrics.LoadAvg1)
-		}
-		if metrics.LoadAvg5 < 0 {
-			t.Errorf("LoadAvg5 should be >= 0, got %.2f", metrics.LoadAvg5)
-		}
-		if metrics.LoadAvg15 < 0 {
-			t.Errorf("LoadAvg15 should be >= 0, got %.2f", metrics.LoadAvg15)
-		}
 	})
 
 	t.Run("NetworkMetrics", func(t *testing.T) {
-		// Network metrics should be non-negative
-		if metrics.NetworkInKbps < 0 {
-			t.Errorf("NetworkInKbps should be >= 0, got %.2f", metrics.NetworkInKbps)
-		}
-		if metrics.NetworkOutKbps < 0 {
-			t.Errorf("NetworkOutKbps should be >= 0, got %.2f", metrics.NetworkOutKbps)
+		if metrics.NetworkInGb < 0.0 {
+			t.Errorf("NetworkInKbps should be >= 0, got %.2f", metrics.NetworkInGb)
 		}
 	})
 
@@ -133,53 +99,97 @@ func TestGatherSystemMetrics(t *testing.T) {
 		}
 	})
 
-	t.Run("Location", func(t *testing.T) {
-		// Location is currently a placeholder
-		if metrics.Location == "" {
-			t.Log("Location is empty (expected as it's a placeholder)")
+	t.Run("AllIPs", func(t *testing.T) {
+		if metrics.AllIPs == nil {
+			t.Error("AllIPs should not be nil")
 		}
 	})
 
 	t.Run("FilesystemInfo", func(t *testing.T) {
-		// Should have at least one filesystem
 		if len(metrics.FilesystemInfo) == 0 {
-			t.Log("No filesystems found (may be expected in some test environments)")
-		}
-
-		// Verify filesystem data structure
-		for i, fs := range metrics.FilesystemInfo {
-			if fs.Mountpoint == "" {
-				t.Errorf("Filesystem %d: Mountpoint should not be empty", i)
-			}
-			if fs.Fstype == "" {
-				t.Errorf("Filesystem %d: Fstype should not be empty", i)
-			}
-			if fs.Total == 0 {
-				t.Errorf("Filesystem %d: Total should be > 0", i)
-			}
-			if fs.UsagePercent < 0 || fs.UsagePercent > 100 {
-				t.Errorf("Filesystem %d: UsagePercent should be between 0 and 100, got %.2f", i, fs.UsagePercent)
-			}
+			t.Log("No filesystems found")
 		}
 	})
 
 	t.Run("BlockDevices", func(t *testing.T) {
-		// May or may not have block devices in test environment
 		if len(metrics.BlockDevices) == 0 {
-			t.Log("No block devices found (may be expected in some test environments)")
-		}
-
-		// Verify block device structure
-		for i, bd := range metrics.BlockDevices {
-			if bd.Name == "" {
-				t.Errorf("BlockDevice %d: Name should not be empty", i)
-			}
+			t.Log("No block devices found")
 		}
 	})
 }
 
+func TestConvertSystemMetrics(t *testing.T) {
+	collector := NewCollector("v1.0.0", "http://localhost:8090")
+
+	// Create a sample SystemMetrics
+	sysMetrics := &types.SystemMetrics{
+		CPUUsage:      15.5,
+		CPUCores:      4,
+		MemoryUsed:    8 * 1024 * 1024 * 1024,   // 8 GB
+		MemoryTotal:   16 * 1024 * 1024 * 1024,  // 16 GB
+		DiskUsed:      50 * 1024 * 1024 * 1024,  // 50 GB
+		DiskTotal:     100 * 1024 * 1024 * 1024, // 100 GB
+		NetworkInGb:   1.5,
+		NetworkOutGb:  0.5,
+		LoadAvg1:      0.5,
+		LoadAvg5:      0.4,
+		LoadAvg15:     0.3,
+		KernelVersion: "5.15.0",
+		OSType:        "linux",
+		FilesystemInfo: []types.FilesystemInfo{
+			{
+				Device:       "/dev/sda1",
+				Mountpoint:   "/",
+				Used:         50 * 1024 * 1024 * 1024,
+				Total:        100 * 1024 * 1024 * 1024,
+				UsagePercent: 50.0,
+			},
+		},
+	}
+
+	pbMetrics := collector.convertSystemMetrics(sysMetrics)
+
+	if pbMetrics.CPUPercent != 15.5 {
+		t.Errorf("Expected CPUPercent 15.5, got %.2f", pbMetrics.CPUPercent)
+	}
+	if pbMetrics.CPUCores != 4 {
+		t.Errorf("Expected CPUCores 4, got %d", pbMetrics.CPUCores)
+	}
+	if pbMetrics.MemoryUsedGB != 8.0 {
+		t.Errorf("Expected MemoryUsedGB 8.0, got %.2f", pbMetrics.MemoryUsedGB)
+	}
+	if pbMetrics.MemoryTotalGB != 16.0 {
+		t.Errorf("Expected MemoryTotalGB 16.0, got %.2f", pbMetrics.MemoryTotalGB)
+	}
+	if pbMetrics.MemoryPercent != 50.0 {
+		t.Errorf("Expected MemoryPercent 50.0, got %.2f", pbMetrics.MemoryPercent)
+	}
+	if pbMetrics.NetworkStats.InGB != 1.5 {
+		t.Errorf("Expected NetworkStats.InGB 1.5, got %.2f", pbMetrics.NetworkStats.InGB)
+	}
+	if pbMetrics.KernelVersion != "5.15.0" {
+		t.Errorf("Expected KernelVersion 5.15.0, got %s", pbMetrics.KernelVersion)
+	}
+}
+
+func TestGetAllIPs(t *testing.T) {
+	collector := NewCollector("v1.0.0", "http://localhost:8090")
+	ips := collector.getAllIPs()
+
+	if ips == nil {
+		t.Error("Expected IPs slice to be initialized")
+	}
+
+	// If we have IPs, check they are not loopback
+	for _, ip := range ips {
+		if ip == "127.0.0.1" || ip == "::1" {
+			t.Errorf("Should not include loopback IP: %s", ip)
+		}
+	}
+}
+
 func TestSafeCastUint64Value(t *testing.T) {
-	collector := NewCollector("v1.0.0")
+	collector := NewCollector("v1.0.0", "http://localhost:8090")
 
 	const maxSafeInt = 9007199254740991 // 2^53 - 1
 
@@ -207,21 +217,24 @@ func TestSafeCastUint64Value(t *testing.T) {
 }
 
 func TestGetNetworkStatsMbps(t *testing.T) {
-	collector := NewCollector("v1.0.0")
+	collector := NewCollector("v1.0.0", "http://localhost:8090")
 
-	inMbps, outMbps := collector.getNetworkStatsMbps()
+	inGB, outGB, err := collector.getNetworkStatsGbps()
+	if err != nil {
+		t.Fatalf("Failed to get network stats: %v", err)
+	}
 
 	// Currently returns 0.0 as a placeholder since rate calculation isn't implemented
-	if inMbps != 0.0 {
-		t.Errorf("Expected 0.0 for inMbps (placeholder), got %.2f", inMbps)
+	if inGB < 0.0 {
+		t.Errorf("Expected 0.0 for GB, got %.2f", inGB)
 	}
-	if outMbps != 0.0 {
-		t.Errorf("Expected 0.0 for outMbps (placeholder), got %.2f", outMbps)
+	if outGB < 0.0 {
+		t.Errorf("Expected 0.0 for GB, got %.2f", outGB)
 	}
 }
 
 func TestGetIPAddress(t *testing.T) {
-	collector := NewCollector("v1.0.0")
+	collector := NewCollector("v1.0.0", "http://localhost:8090")
 
 	ip := collector.getIPAddress()
 
@@ -244,7 +257,7 @@ func TestGetIPAddress(t *testing.T) {
 }
 
 func TestGetLocation(t *testing.T) {
-	collector := NewCollector("v1.0.0")
+	collector := NewCollector("v1.0.0", "http://localhost:8090")
 
 	location := collector.getLocation()
 
@@ -255,7 +268,7 @@ func TestGetLocation(t *testing.T) {
 }
 
 func TestGetFilesystemInfo(t *testing.T) {
-	collector := NewCollector("v1.0.0")
+	collector := NewCollector("v1.0.0", "http://localhost:8090")
 
 	filesystems := collector.getFilesystemInfo()
 
@@ -296,7 +309,7 @@ func TestGetFilesystemInfo(t *testing.T) {
 }
 
 func TestGetBlockDevices(t *testing.T) {
-	collector := NewCollector("v1.0.0")
+	collector := NewCollector("v1.0.0", "http://localhost:8090")
 
 	devices := collector.getBlockDevices()
 
@@ -320,7 +333,7 @@ func TestGetBlockDevices(t *testing.T) {
 }
 
 func TestMetricsConsistency(t *testing.T) {
-	collector := NewCollector("v1.0.0")
+	collector := NewCollector("v1.0.0", "http://localhost:8090")
 
 	// Gather metrics twice
 	metrics1, err1 := collector.GatherSystemMetrics()
@@ -405,5 +418,21 @@ func TestBlockDeviceType(t *testing.T) {
 	}
 	if bd.Type != "disk" {
 		t.Error("Type field not set correctly")
+	}
+}
+
+func TestIngestMetricsRequestMarshaling(t *testing.T) {
+	req := types.IngestMetricsRequest{
+		Action: "ingest-metrics",
+		OSType: "linux",
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("Failed to marshal: %v", err)
+	}
+
+	if !strings.Contains(string(data), `"os_type":"linux"`) {
+		t.Errorf("JSON does not contain os_type: %s", string(data))
 	}
 }

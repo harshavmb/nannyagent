@@ -1,7 +1,6 @@
-package main
+package agent
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +11,7 @@ import (
 
 	"nannyagentv2/internal/ebpf"
 	"nannyagentv2/internal/executor"
+	"nannyagentv2/internal/investigations"
 	"nannyagentv2/internal/logging"
 	"nannyagentv2/internal/system"
 	"nannyagentv2/internal/types"
@@ -51,17 +51,11 @@ type LinuxDiagnosticAgent struct {
 
 // NewLinuxDiagnosticAgent creates a new diagnostic agent
 func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
-	// Get Supabase project URL for TensorZero proxy
-	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
-	if supabaseURL == "" {
-		logging.Warning("SUPABASE_PROJECT_URL not set, TensorZero integration will not work")
-	}
-
 	// Default model for diagnostic and healing
 	model := "tensorzero::function_name::diagnose_and_heal"
 
 	agent := &LinuxDiagnosticAgent{
-		client:   nil, // Not used - we use direct HTTP to Supabase proxy
+		client:   nil, // Not used - we use direct HTTP to PocketBase proxy
 		model:    model,
 		executor: executor.NewCommandExecutor(10 * time.Second), // 10 second timeout for commands
 		config:   DefaultAgentConfig(),                          // Default concurrent execution config
@@ -76,18 +70,9 @@ func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
 
 // NewLinuxDiagnosticAgentWithAuth creates a new diagnostic agent with authentication
 func NewLinuxDiagnosticAgentWithAuth(authManager interface{}) *LinuxDiagnosticAgent {
-	// Get Supabase project URL for TensorZero proxy
-	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
-	if supabaseURL == "" {
-		logging.Warning("SUPABASE_PROJECT_URL not set, TensorZero integration will not work")
-	}
-
-	// Default model for diagnostic and healing
-	model := "tensorzero::function_name::diagnose_and_heal"
 
 	agent := &LinuxDiagnosticAgent{
-		client:      nil, // Not used - we use direct HTTP to Supabase proxy
-		model:       model,
+		client:      nil,                                           // Not used - we use direct HTTP to PocketBase proxy
 		executor:    executor.NewCommandExecutor(10 * time.Second), // 10 second timeout for commands
 		config:      DefaultAgentConfig(),                          // Default concurrent execution config
 		authManager: authManager,                                   // Store auth manager for TensorZero requests
@@ -120,27 +105,75 @@ func (a *LinuxDiagnosticAgent) GetInvestigationID() string {
 	return a.investigationID
 }
 
+// createInvestigation creates a new investigation record in the backend
+func (a *LinuxDiagnosticAgent) createInvestigation(issue string) (string, error) {
+	if a.authManager == nil {
+		return "", fmt.Errorf("authentication required to create investigation")
+	}
+
+	// Get Agent ID and Token
+	var agentID string
+	var accessToken string
+
+	if authMgr, ok := a.authManager.(interface {
+		GetCurrentAgentID() (string, error)
+		LoadToken() (*types.AuthToken, error)
+	}); ok {
+		var err error
+		agentID, err = authMgr.GetCurrentAgentID()
+		if err != nil {
+			return "", fmt.Errorf("failed to get agent ID: %w", err)
+		}
+
+		token, err := authMgr.LoadToken()
+		if err != nil {
+			return "", fmt.Errorf("failed to load token: %w", err)
+		}
+		accessToken = token.AccessToken
+	} else {
+		return "", fmt.Errorf("auth manager does not support required interfaces")
+	}
+
+	// Get PocketBase URL
+	pocketbaseURL := os.Getenv("POCKETBASE_URL")
+
+	// Use investigations client
+	client := investigations.NewInvestigationsClient(pocketbaseURL)
+	resp, err := client.CreateInvestigation(accessToken, agentID, issue, "medium")
+	if err != nil {
+		return "", fmt.Errorf("failed to create investigation: %w", err)
+	}
+
+	return resp.ID, nil
+}
+
 // DiagnoseIssue starts the diagnostic process for a given issue
 // This is used for CLI or direct calls where investigation tracking is not needed
 func (a *LinuxDiagnosticAgent) DiagnoseIssue(issue string) error {
-	return a.diagnoseIssueInternal(issue, false)
+	// For CLI mode, we first create an investigation record to get an ID
+	// This allows the backend to track the investigation and proxy requests correctly
+	logging.Info("Creating investigation record...")
+	id, err := a.createInvestigation(issue)
+	if err != nil {
+		return fmt.Errorf("failed to create investigation record: %w", err)
+	}
+
+	a.investigationID = id
+	logging.Info("Created investigation ID: %s", id)
+
+	return a.diagnoseIssueInternal(issue)
 }
 
 // DiagnoseIssueWithInvestigation diagnoses an issue that was initiated by backend/portal
 // The investigation_id is tracked externally (websocket handler updates status)
 // This prevents creating duplicate investigations
 func (a *LinuxDiagnosticAgent) DiagnoseIssueWithInvestigation(issue string) error {
-	// IMPORTANT: Clear any previous episodeID to prevent reusing episodes from prior investigations
-	a.episodeID = ""
-	logging.Info("[DIAGNOSIS_TRACK] Cleared previous episodeID for new investigation")
 	logging.Info("[DIAGNOSIS_TRACK] Investigation ID: %s", a.investigationID)
-	return a.diagnoseIssueInternal(issue, true)
+	return a.diagnoseIssueInternal(issue)
 }
 
 // diagnoseIssueInternal is the core diagnostic logic shared by both methods
-// If isBackendInitiated=true, it will NOT reset episodeID at the end (caller will manage it)
-// If isBackendInitiated=false, it will reset episodeID (CLI mode)
-func (a *LinuxDiagnosticAgent) diagnoseIssueInternal(issue string, isBackendInitiated bool) error {
+func (a *LinuxDiagnosticAgent) diagnoseIssueInternal(issue string) error {
 	logging.Info("Diagnosing issue: %s", issue)
 	logging.Info("Gathering system information...")
 
@@ -283,15 +316,6 @@ func (a *LinuxDiagnosticAgent) diagnoseIssueInternal(issue string, isBackendInit
 			logging.Info("Resolution Plan: %s", resolutionResp.ResolutionPlan)
 			logging.Info("Confidence: %s", resolutionResp.Confidence)
 
-			// Only reset episode ID for CLI-initiated investigations
-			// Backend-initiated investigations keep the episodeID for the caller to use
-			if !isBackendInitiated {
-				a.episodeID = ""
-				logging.Debug("Episode completed, reset episode_id for next conversation")
-			} else {
-				logging.Debug("Episode completed, keeping episode_id for backend investigation tracking")
-			}
-
 			break
 		}
 
@@ -330,16 +354,10 @@ func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatComp
 		"messages": messageMaps,
 	}
 
-	// Add episode ID if provided
-	if episodeID != "" {
-		tzRequest["tensorzero::episode_id"] = episodeID
-	}
-
-	// Add investigation ID in metadata if this is a portal-initiated investigation
+	// Add investigation ID to top-level for proxy routing
+	// This tells the backend to proxy the request to TensorZero instead of creating a new investigation
 	if a.investigationID != "" {
-		tzRequest["metadata"] = map[string]interface{}{
-			"investigation_id": a.investigationID,
-		}
+		tzRequest["investigation_id"] = a.investigationID
 	}
 
 	// Marshal request
@@ -348,113 +366,44 @@ func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatComp
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Get Supabase URL
-	supabaseURL := os.Getenv("SUPABASE_PROJECT_URL")
-	if supabaseURL == "" {
-		return nil, fmt.Errorf("SUPABASE_PROJECT_URL not set")
-	}
+	// Get PocketBase URL
+	pocketbaseURL := os.Getenv("POCKETBASE_URL")
 
-	// Create HTTP request to TensorZero proxy (includes OpenAI-compatible path)
-	endpoint := fmt.Sprintf("%s/functions/v1/tensorzero-proxy/openai/v1/chat/completions", supabaseURL)
-	logging.Debug("Calling TensorZero proxy at: %s", endpoint)
-	logging.Info("[TENSORZERO_API] POST %s with episodeID: %s", endpoint, episodeID)
-	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(requestBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
+	// Create HTTP request to investigations endpoint
+	// PocketBase routes requests to /api/investigations for TensorZero integration
+	endpoint := fmt.Sprintf("%s/api/investigations", pocketbaseURL)
+	logging.Debug("Calling investigations endpoint at: %s", endpoint)
+	logging.Info("[TENSORZERO_API] POST %s:", endpoint)
 
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	// Add authentication if auth manager is available (same pattern as investigation_server.go)
-	if a.authManager != nil {
-		// The authManager should be *auth.AuthManager, so let's use the exact same pattern
-		if authMgr, ok := a.authManager.(interface {
-			LoadToken() (*types.AuthToken, error)
-		}); ok {
-			if authToken, err := authMgr.LoadToken(); err == nil && authToken != nil {
-				req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", authToken.AccessToken))
-			}
-		}
-	}
-
-	// Send request with retry logic (up to 5 attempts with longer timeout)
-	client := &http.Client{Timeout: 60 * time.Second}
 	var resp *http.Response
-	var lastErr error
 
-	for attempt := 1; attempt <= 5; attempt++ {
-		resp, err = client.Do(req)
-		if err == nil {
-			break
+	// Use AuthenticatedDo if available
+	if a.authManager != nil {
+		if authMgr, ok := a.authManager.(interface {
+			AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error)
+		}); ok {
+			headers := map[string]string{
+				"Content-Type": "application/json",
+				"Accept":       "application/json",
+			}
+			resp, err = authMgr.AuthenticatedDo("POST", endpoint, requestBody, headers)
+		} else {
+			return nil, fmt.Errorf("auth manager does not support AuthenticatedDo")
 		}
-
-		lastErr = err
-		logging.Warning("Request attempt %d/5 failed: %v", attempt, err)
-
-		if attempt < 5 {
-			// Exponential backoff: 2s, 4s, 8s, 16s
-			backoff := time.Duration(1<<uint(attempt)) * time.Second
-			logging.Info("Retrying in %v...", backoff)
-			time.Sleep(backoff)
-		}
+	} else {
+		return nil, fmt.Errorf("authentication required")
 	}
 
-	if lastErr != nil {
-		return nil, fmt.Errorf("failed to send request after 5 attempts: %w", lastErr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	// Check status code
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-
-		// Handle 401 Unauthorized - try to refresh token
-		if resp.StatusCode == 401 && a.authManager != nil {
-			if authMgr, ok := a.authManager.(interface {
-				LoadToken() (*types.AuthToken, error)
-				RefreshAccessToken(string) (*types.TokenResponse, error)
-				SaveToken(*types.AuthToken) error
-			}); ok {
-				// Load current token to get refresh token
-				if currentToken, err := authMgr.LoadToken(); err == nil && currentToken != nil && currentToken.RefreshToken != "" {
-					// Refresh the access token
-					if tokenResp, err := authMgr.RefreshAccessToken(currentToken.RefreshToken); err == nil {
-						// Save the new token
-						newToken := &types.AuthToken{
-							AccessToken:  tokenResp.AccessToken,
-							RefreshToken: tokenResp.RefreshToken,
-							TokenType:    tokenResp.TokenType,
-							ExpiresAt:    time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
-							AgentID:      currentToken.AgentID, // Keep existing agent ID
-						}
-						if err := authMgr.SaveToken(newToken); err == nil {
-							// Update the Authorization header with new token
-							req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", newToken.AccessToken))
-
-							// Retry the request with new token
-							resp, err = client.Do(req)
-							if err != nil {
-								return nil, fmt.Errorf("failed to send request after token refresh: %w", err)
-							}
-							defer func() { _ = resp.Body.Close() }() // If still not 200, fall through to error below
-							if resp.StatusCode == 200 {
-								// Success! Continue with normal response processing
-								goto parseResponse
-							}
-
-							body, _ = io.ReadAll(resp.Body)
-						}
-					}
-				}
-			}
-		}
-
 		return nil, fmt.Errorf("TensorZero proxy error: %d, body: %s", resp.StatusCode, string(body))
 	}
-
-parseResponse:
 
 	// Parse response
 	var tzResponse map[string]interface{}
@@ -494,12 +443,6 @@ parseResponse:
 				},
 			},
 		},
-	}
-
-	// Update episode ID if provided in response
-	if respEpisodeID, ok := tzResponse["episode_id"].(string); ok && respEpisodeID != "" {
-		logging.Info("[TENSORZERO_API] Received episode_id from TensorZero: %s", respEpisodeID)
-		a.episodeID = respEpisodeID
 	}
 
 	return response, nil

@@ -2,11 +2,16 @@ package system
 
 import (
 	"net"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestGatherSystemInfo(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Skipping system info tests on non-Linux OS")
+	}
+
 	info := GatherSystemInfo()
 
 	if info == nil {
