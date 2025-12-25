@@ -24,7 +24,7 @@ type InvestigationHandler func(investigationID, prompt string)
 // PatchHandler is a callback function that processes a patch operation request
 type PatchHandler func(payload types.AgentPatchPayload)
 
-// Client handles the Realtime (SSE) connection to PocketBase
+// Client handles the Realtime (SSE) connection to NannyAPI
 type Client struct {
 	baseURL              string
 	accessToken          string

@@ -14,24 +14,24 @@ import (
 	"nannyagentv2/internal/types"
 )
 
-// TestIntegration_E2E_PocketBase_DeviceAuthFlow tests the complete PocketBase device auth flow
-// This test requires POCKETBASE_URL environment variable pointing to a running PocketBase instance
-func TestIntegration_E2E_PocketBase_DeviceAuthFlow(t *testing.T) {
+// TestIntegration_E2E_NannyAPI_DeviceAuthFlow tests the complete NannyAPI device auth flow
+// This test requires NANNYAPI_URL environment variable pointing to a running NannyAPI instance
+func TestIntegration_E2E_NannyAPI_DeviceAuthFlow(t *testing.T) {
 	// Skip if not in integration test mode
 	if os.Getenv("INTEGRATION_TEST") != "true" {
 		t.Skip("Skipping E2E test. Set INTEGRATION_TEST=true to run")
 	}
 
-	pocketbaseURL := os.Getenv("POCKETBASE_URL")
-	if pocketbaseURL == "" {
-		pocketbaseURL = "http://localhost:8090"
+	nannyAPIURL := os.Getenv("NANNYAPI_URL")
+	if nannyAPIURL == "" {
+		nannyAPIURL = "http://localhost:8090"
 	}
 
-	t.Logf("Testing PocketBase integration at: %s", pocketbaseURL)
+	t.Logf("Testing NannyAPI integration at: %s", nannyAPIURL)
 
-	// Create config for PocketBase
+	// Create config for NannyAPI
 	cfg := &config.Config{
-		APIBaseURL:      pocketbaseURL,
+		APIBaseURL:      nannyAPIURL,
 		MetricsInterval: 30,
 	}
 
@@ -88,11 +88,11 @@ func TestIntegration_E2E_PocketBase_DeviceAuthFlow(t *testing.T) {
 	t.Logf("  CPU: %d cores, %.1f%% usage", systemMetrics.CPUCores, systemMetrics.CPUUsage)
 	t.Logf("  Memory: %.2f GB / %.2f GB", float64(systemMetrics.MemoryUsed)/(1024*1024*1024), float64(systemMetrics.MemoryTotal)/(1024*1024*1024))
 
-	// Step 4: Test PocketBase metrics conversion (manual check since client is merged)
-	t.Log("\nStep 4: Testing PocketBase metrics conversion...")
+	// Step 4: Test NannyAPI metrics conversion (manual check since client is merged)
+	t.Log("\nStep 4: Testing NannyAPI metrics conversion...")
 
-	// Convert to PocketBase format manually for verification
-	pbMetrics := types.PocketBaseSystemMetrics{
+	// Convert to NannyAPI format manually for verification
+	pbMetrics := types.NannyAgentSystemMetrics{
 		CPUPercent:    systemMetrics.CPUUsage,
 		CPUCores:      systemMetrics.CPUCores,
 		MemoryUsedGB:  float64(systemMetrics.MemoryUsed) / (1024 * 1024 * 1024),
@@ -106,7 +106,7 @@ func TestIntegration_E2E_PocketBase_DeviceAuthFlow(t *testing.T) {
 		},
 	}
 
-	t.Logf("Metrics converted to PocketBase format")
+	t.Logf("Metrics converted to NannyAPI format")
 	t.Logf("  Memory: %.1f%% (%.1f GB / %.1f GB)", pbMetrics.MemoryPercent, pbMetrics.MemoryUsedGB, pbMetrics.MemoryTotalGB)
 	t.Logf("  Disk: %.1f%% (%.1f GB / %.1f GB)", pbMetrics.DiskUsagePercent, pbMetrics.DiskUsedGB, pbMetrics.DiskTotalGB)
 	t.Logf("  Load Average: 1m=%.2f, 5m=%.2f, 15m=%.2f", pbMetrics.LoadAverage.OneMin, pbMetrics.LoadAverage.FiveMin, pbMetrics.LoadAverage.FifteenMin)
@@ -165,21 +165,21 @@ func TestIntegration_E2E_PocketBase_DeviceAuthFlow(t *testing.T) {
 	t.Log("\n" + "════════════════════════════════════════════════════════════════════════")
 	t.Log("E2E Integration Test Summary")
 	t.Log("════════════════════════════════════════════════════════════════════════")
-	t.Log("PocketBase connectivity verified")
+	t.Log("NannyAPI connectivity verified")
 	t.Log("Device authorization request/response structure validated")
 	t.Log("Metrics collection working correctly")
-	t.Log("Metrics conversion to PocketBase format successful")
+	t.Log("Metrics conversion to NannyAPI format successful")
 	t.Log("Token persistence implemented correctly")
 	t.Log("\nNext Steps for Full E2E Testing:")
-	t.Logf("1. Run agent with: POCKETBASE_URL=%s sudo nannyagent --register", pocketbaseURL)
-	t.Log("2. Authorize the device code in the PocketBase portal")
+	t.Logf("1. Run agent with: NANNYAPI_URL=%s sudo nannyagent --register", nannyAPIURL)
+	t.Log("2. Authorize the device code in the NannyAPI portal")
 	t.Log("3. Verify agent starts and sends metrics")
-	t.Log("4. Check metrics are stored in PocketBase agent_metrics collection")
+	t.Log("4. Check metrics are stored in NannyAPI agent_metrics collection")
 	t.Log("════════════════════════════════════════════════════════════════════════")
 }
 
-// TestIntegration_PocketBase_Types tests that all required types are properly defined
-func TestIntegration_PocketBase_Types(t *testing.T) {
+// TestIntegration_NannyAPI_Types tests that all required types are properly defined
+func TestIntegration_NannyAPI_Types(t *testing.T) {
 	// Test DeviceAuthResponse
 	deviceAuth := types.DeviceAuthResponse{
 		DeviceCode:      "uuid123",
@@ -212,7 +212,7 @@ func TestIntegration_PocketBase_Types(t *testing.T) {
 	t.Logf("TokenResponse: %d bytes", len(data))
 
 	// Test IngestMetricsRequest
-	metrics := types.PocketBaseSystemMetrics{
+	metrics := types.NannyAgentSystemMetrics{
 		CPUPercent:       45.5,
 		CPUCores:         8,
 		MemoryUsedGB:     8.0,
@@ -253,7 +253,7 @@ func TestIntegration_PocketBase_Types(t *testing.T) {
 
 	t.Logf("AuthorizeRequest: %d bytes", len(data))
 
-	t.Log("All PocketBase types are properly defined and serializable")
+	t.Log("All NannyAPI types are properly defined and serializable")
 }
 
 // TestIntegration_Documentation prints comprehensive integration guide
@@ -264,16 +264,16 @@ func TestIntegration_Documentation(t *testing.T) {
 
 	guide := `
 ╔════════════════════════════════════════════════════════════════════════════╗
-║          NannyAgent PocketBase Integration - E2E Testing Guide             ║
+║          NannyAgent NannyAPI Integration - E2E Testing Guide             ║
 ╚════════════════════════════════════════════════════════════════════════════╝
 
 PREREQUISITES:
-  PocketBase running at http://127.0.0.1:8090/
+  NannyAPI running at http://127.0.0.1:8090/
   Admin user: admin@nannyapi.local / AdminPass-123
   Linux agent binary built (nannyagent_linux_amd64 or nannyagent_linux_arm64)
 
-STEP 1: Register a Test User in PocketBase
-  1. Log in to PocketBase admin panel at http://127.0.0.1:8090/_/
+STEP 1: Register a Test User in NannyAPI
+  1. Log in to NannyAPI admin panel at http://127.0.0.1:8090/_/
   2. Use credentials: admin@nannyapi.local / AdminPass-123
   3. Create a new user in the "users" collection
      - Email: test-agent@example.com
@@ -290,7 +290,7 @@ STEP 2: Deploy Agent Binary to Test Machine
 
 STEP 3: Run Agent Registration (Device Auth Flow)
   On the target machine:
-    export POCKETBASE_URL="http://127.0.0.1:8090"
+    export NANNYAPI_URL="http://127.0.0.1:8090"
     sudo /tmp/nannyagent_linux_arm64 --register
   
   Expected output:
@@ -311,8 +311,8 @@ STEP 4: Verify Registration
     Service running
 
 STEP 5: Monitor Metrics Ingestion
-  View PocketBase logs:
-    docker logs pocketbase_container
+  View NannyAPI logs:
+    docker logs NannyAPI_container
   
   Or query metrics via API:
     curl -s "http://127.0.0.1:8090/api/collections/agent_metrics/records" \
@@ -330,7 +330,7 @@ STEP 6: Daemon Mode (systemd)
 
 TROUBLESHOOTING:
   • Token not found: Run --register again
-  • API connectivity error: Check POCKETBASE_URL env var
+  • API connectivity error: Check NANNYAPI_URL env var
   • Authorization timeout: User code not entered in portal within 5 minutes
   • Metrics not ingesting: Check agent has valid access token
 
@@ -369,11 +369,11 @@ METRICS INGESTION:
       }
     }
 
-FILES MODIFIED FOR POCKETBASE:
-  internal/auth/auth.go - PocketBase device auth implementation
-  internal/config/config.go - Added API_BASE_URL config
-  internal/metrics/pocketbase_client.go - Metrics ingestion client
-  internal/types/types.go - PocketBase-compatible types
+FILES MODIFIED for NannyAPI:
+  internal/auth/auth.go - NannyAPI device auth implementation
+  internal/config/config.go - Added NANNYAPI_URL config
+  internal/metrics/collector.go - Metrics ingestion client
+  internal/types/types.go - NannyAPI-compatible types
   main.go - Updated registration and metrics flows
 
 TESTS:
@@ -384,8 +384,8 @@ TESTS:
     go test ./internal/auth -v -run TestAuthManager_StartDeviceAuthorization
   
   Run E2E test (requires INTEGRATION_TEST=true):
-    INTEGRATION_TEST=true POCKETBASE_URL=http://localhost:8090 \
-      go test ./... -v -run TestIntegration_E2E_PocketBase
+    INTEGRATION_TEST=true NANNYAPI_URL=http://localhost:8090 \
+      go test ./... -v -run TestIntegration_E2E_NannyAPI
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║  All systems operational. Ready for deployment and end-to-end testing      ║
 ╚════════════════════════════════════════════════════════════════════════════╝

@@ -76,7 +76,13 @@ func (pm *PatchManager) HandlePatchOperation(payload types.AgentPatchPayload) er
 	} else {
 		mode = payload.Mode
 	}
-	args := []string{mode}
+
+	// if mode is apply, we shouldn't pass any args
+	// patch scripts by default apply all changes unless in dry-run
+	var args []string
+	if mode != "--apply" {
+		args = []string{mode}
+	}
 	if payload.ScriptArgs != "" {
 		args = append(args, payload.ScriptArgs)
 	}
@@ -186,7 +192,7 @@ func (pm *PatchManager) validateScript(scriptURL, filePath string) error {
 	// Example: /api/files/scripts_collection_id/RECORD_ID/filename.sh
 	// We need RECORD_ID
 
-	// Simple parsing assuming standard PocketBase file URL structure
+	// Simple parsing assuming standard NannyAPI file URL structure
 	// Remove query params if any
 	cleanURL := scriptURL
 	if idx := strings.IndexByte(cleanURL, '?'); idx != -1 {

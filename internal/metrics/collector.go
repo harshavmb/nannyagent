@@ -298,14 +298,14 @@ func (c *Collector) getAllIPs() []string {
 	return ips
 }
 
-// IngestMetrics sends system metrics to PocketBase /api/agent endpoint
+// IngestMetrics sends system metrics to NannyAPI /api/agent endpoint
 // agentID is required for upsert operation - metrics will be updated for same agent
 func (c *Collector) IngestMetrics(agentID string, authManager interface {
 	AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error)
 }, systemMetrics *types.SystemMetrics) error {
 	logging.Debug("Ingesting metrics for agent %s", agentID)
 
-	// Convert SystemMetrics to PocketBaseSystemMetrics format
+	// Convert SystemMetrics to NannyAPISystemMetrics format
 	pbMetrics := c.convertSystemMetrics(systemMetrics)
 
 	// Create the ingest request payload with agent_id for upsert
@@ -329,7 +329,7 @@ func (c *Collector) IngestMetrics(agentID string, authManager interface {
 		return fmt.Errorf("failed to marshal metrics payload: %w", err)
 	}
 
-	// Send request to PocketBase /api/agent endpoint with authorization
+	// Send request to NannyAPI /api/agent endpoint with authorization
 	url := fmt.Sprintf("%s/api/agent", c.apiBaseURL)
 
 	resp, err := authManager.AuthenticatedDo("POST", url, jsonData, nil)
@@ -376,9 +376,9 @@ func (c *Collector) IngestMetrics(agentID string, authManager interface {
 	return nil
 }
 
-// convertSystemMetrics converts internal SystemMetrics to PocketBase format
-func (c *Collector) convertSystemMetrics(systemMetrics *types.SystemMetrics) types.PocketBaseSystemMetrics {
-	// Convert filesystems to PocketBase format
+// convertSystemMetrics converts internal SystemMetrics to NannyAPI format
+func (c *Collector) convertSystemMetrics(systemMetrics *types.SystemMetrics) types.NannyAgentSystemMetrics {
+	// Convert filesystems to NannyAPI format
 	filesystems := c.convertFilesystems(systemMetrics.FilesystemInfo)
 
 	// Calculate memory percentage
@@ -401,7 +401,7 @@ func (c *Collector) convertSystemMetrics(systemMetrics *types.SystemMetrics) typ
 	diskUsedGB := float64(systemMetrics.DiskUsed) / (1024 * 1024 * 1024)
 	diskTotalGB := float64(systemMetrics.DiskTotal) / (1024 * 1024 * 1024)
 
-	return types.PocketBaseSystemMetrics{
+	return types.NannyAgentSystemMetrics{
 		CPUPercent:       math.Round(systemMetrics.CPUUsage*100) / 100,
 		CPUCores:         systemMetrics.CPUCores,
 		MemoryUsedGB:     math.Round(memoryUsedGB*100) / 100,
@@ -424,7 +424,7 @@ func (c *Collector) convertSystemMetrics(systemMetrics *types.SystemMetrics) typ
 	}
 }
 
-// convertFilesystems converts filesystem info to PocketBase format
+// convertFilesystems converts filesystem info to NannyAPI format
 func (c *Collector) convertFilesystems(filesystemInfo []types.FilesystemInfo) []types.FilesystemStats {
 	if len(filesystemInfo) == 0 {
 		return []types.FilesystemStats{}
