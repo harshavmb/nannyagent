@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"nannyagentv2/internal/logging"
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/logging"
+	"nannyagent/internal/types"
 )
 
 type RealtimeMessage struct {

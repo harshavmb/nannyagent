@@ -12,14 +12,14 @@ import (
 	"sync"
 	"time"
 
-	"nannyagentv2/internal/agent"
-	"nannyagentv2/internal/auth"
-	"nannyagentv2/internal/config"
-	"nannyagentv2/internal/logging"
-	"nannyagentv2/internal/metrics"
-	"nannyagentv2/internal/patches"
-	"nannyagentv2/internal/realtime"
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/agent"
+	"nannyagent/internal/auth"
+	"nannyagent/internal/config"
+	"nannyagent/internal/logging"
+	"nannyagent/internal/metrics"
+	"nannyagent/internal/patches"
+	"nannyagent/internal/realtime"
+	"nannyagent/internal/types"
 )
 
 const (

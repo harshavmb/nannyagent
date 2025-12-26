@@ -1,4 +1,4 @@
-module nannyagentv2
+module nannyagent
 
 go 1.24.0
 

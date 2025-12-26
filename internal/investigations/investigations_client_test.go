@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/types"
 )
 
 func TestInvestigationsClient_CreateInvestigation(t *testing.T) {

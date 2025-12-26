@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"nannyagentv2/internal/auth"
-	"nannyagentv2/internal/config"
-	"nannyagentv2/internal/metrics"
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/auth"
+	"nannyagent/internal/config"
+	"nannyagent/internal/metrics"
+	"nannyagent/internal/types"
 )
 
 // TestIntegration_E2E_NannyAPI_DeviceAuthFlow tests the complete NannyAPI device auth flow

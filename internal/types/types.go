@@ -3,7 +3,7 @@ package types
 import (
 	"time"
 
-	"nannyagentv2/internal/ebpf"
+	"nannyagent/internal/ebpf"
 )
 
 // ChatMessage represents a message in the conversation

@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"nannyagentv2/internal/ebpf"
-	"nannyagentv2/internal/executor"
-	"nannyagentv2/internal/investigations"
-	"nannyagentv2/internal/logging"
-	"nannyagentv2/internal/system"
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/ebpf"
+	"nannyagent/internal/executor"
+	"nannyagent/internal/investigations"
+	"nannyagent/internal/logging"
+	"nannyagent/internal/system"
+	"nannyagent/internal/types"
 )
 
 // AgentConfig holds configuration for concurrent execution (local to agent)

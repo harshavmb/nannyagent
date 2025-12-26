@@ -13,9 +13,9 @@ import (
 
 	"github.com/shirou/gopsutil/v3/host"
 
-	"nannyagentv2/internal/config"
-	"nannyagentv2/internal/logging"
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/config"
+	"nannyagent/internal/logging"
+	"nannyagent/internal/types"
 )
 
 const (

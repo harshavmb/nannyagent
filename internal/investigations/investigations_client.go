@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"nannyagentv2/internal/logging"
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/logging"
+	"nannyagent/internal/types"
 )
 
 // InvestigationsClient handles all investigation API operations

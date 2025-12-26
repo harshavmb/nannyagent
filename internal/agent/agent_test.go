@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/types"
 	"testing"
 )
 
