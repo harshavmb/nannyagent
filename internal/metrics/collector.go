@@ -18,8 +18,8 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/net"
 
-	"nannyagentv2/internal/logging"
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/logging"
+	"nannyagent/internal/types"
 )
 
 // Collector handles system metrics collection

@@ -3,9 +3,19 @@ package types
 import (
 	"time"
 
-	"nannyagentv2/internal/ebpf"
+	"nannyagent/internal/ebpf"
+)
 
-	"github.com/sashabaranov/go-openai"
+// ChatMessage represents a message in the conversation
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+const (
+	ChatMessageRoleSystem    = "system"
+	ChatMessageRoleUser      = "user"
+	ChatMessageRoleAssistant = "assistant"
 )
 
 // SystemMetrics represents comprehensive system performance metrics
@@ -475,8 +485,6 @@ type DiagnosticAgent interface {
 	// Exported method names to match what websocket client calls
 	ConvertEBPFProgramsToTraceSpecs(ebpfRequests []EBPFRequest) []ebpf.TraceSpec
 	ExecuteEBPFTraces(traceSpecs []ebpf.TraceSpec) []map[string]interface{}
-	SendRequestWithEpisode(messages []openai.ChatCompletionMessage, episodeID string) (*openai.ChatCompletionResponse, error)
-	SendRequest(messages []openai.ChatCompletionMessage) (*openai.ChatCompletionResponse, error)
 	ExecuteCommand(cmd Command) CommandResult
 }
 

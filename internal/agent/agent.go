@@ -3,20 +3,16 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"nannyagentv2/internal/ebpf"
-	"nannyagentv2/internal/executor"
-	"nannyagentv2/internal/investigations"
-	"nannyagentv2/internal/logging"
-	"nannyagentv2/internal/system"
-	"nannyagentv2/internal/types"
-
-	"github.com/sashabaranov/go-openai"
+	"nannyagent/internal/ebpf"
+	"nannyagent/internal/executor"
+	"nannyagent/internal/investigations"
+	"nannyagent/internal/logging"
+	"nannyagent/internal/system"
+	"nannyagent/internal/types"
 )
 
 // AgentConfig holds configuration for concurrent execution (local to agent)
@@ -38,7 +34,6 @@ func DefaultAgentConfig() *AgentConfig {
 
 // LinuxDiagnosticAgent represents the main diagnostic agent
 type LinuxDiagnosticAgent struct {
-	client          *openai.Client
 	model           string
 	executor        *executor.CommandExecutor
 	episodeID       string                // TensorZero episode ID for conversation continuity
@@ -47,6 +42,7 @@ type LinuxDiagnosticAgent struct {
 	config          *AgentConfig          // Configuration for concurrent execution
 	authManager     interface{}           // Authentication manager for TensorZero requests
 	logger          *logging.Logger
+	apiURL          string // NannyAPI URL
 }
 
 // NewLinuxDiagnosticAgent creates a new diagnostic agent
@@ -55,7 +51,6 @@ func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
 	model := "tensorzero::function_name::diagnose_and_heal"
 
 	agent := &LinuxDiagnosticAgent{
-		client:   nil, // Not used - we use direct HTTP to NannyAPI proxy
 		model:    model,
 		executor: executor.NewCommandExecutor(10 * time.Second), // 10 second timeout for commands
 		config:   DefaultAgentConfig(),                          // Default concurrent execution config
@@ -69,13 +64,13 @@ func NewLinuxDiagnosticAgent() *LinuxDiagnosticAgent {
 }
 
 // NewLinuxDiagnosticAgentWithAuth creates a new diagnostic agent with authentication
-func NewLinuxDiagnosticAgentWithAuth(authManager interface{}) *LinuxDiagnosticAgent {
+func NewLinuxDiagnosticAgentWithAuth(authManager interface{}, apiURL string) *LinuxDiagnosticAgent {
 
 	agent := &LinuxDiagnosticAgent{
-		client:      nil,                                           // Not used - we use direct HTTP to NannyAPI proxy
 		executor:    executor.NewCommandExecutor(10 * time.Second), // 10 second timeout for commands
 		config:      DefaultAgentConfig(),                          // Default concurrent execution config
 		authManager: authManager,                                   // Store auth manager for TensorZero requests
+		apiURL:      apiURL,
 	}
 
 	// Initialize eBPF manager
@@ -105,8 +100,8 @@ func (a *LinuxDiagnosticAgent) GetInvestigationID() string {
 	return a.investigationID
 }
 
-// createInvestigation creates a new investigation record in the backend
-func (a *LinuxDiagnosticAgent) createInvestigation(issue string) (string, error) {
+// CreateInvestigation creates a new investigation record in the backend
+func (a *LinuxDiagnosticAgent) CreateInvestigation(issue string) (string, error) {
 	if a.authManager == nil {
 		return "", fmt.Errorf("authentication required to create investigation")
 	}
@@ -135,7 +130,10 @@ func (a *LinuxDiagnosticAgent) createInvestigation(issue string) (string, error)
 	}
 
 	// Get NannyAPI URL
-	nannyAPIURL := os.Getenv("NANNYAPI_URL")
+	nannyAPIURL := a.apiURL
+	if nannyAPIURL == "" {
+		nannyAPIURL = os.Getenv("NANNYAPI_URL")
+	}
 
 	// Use investigations client
 	client := investigations.NewInvestigationsClient(nannyAPIURL)
@@ -153,7 +151,7 @@ func (a *LinuxDiagnosticAgent) DiagnoseIssue(issue string) error {
 	// For CLI mode, we first create an investigation record to get an ID
 	// This allows the backend to track the investigation and proxy requests correctly
 	logging.Info("Creating investigation record...")
-	id, err := a.createInvestigation(issue)
+	id, err := a.CreateInvestigation(issue)
 	if err != nil {
 		return fmt.Errorf("failed to create investigation record: %w", err)
 	}
@@ -184,25 +182,43 @@ func (a *LinuxDiagnosticAgent) diagnoseIssueInternal(issue string) error {
 	initialPrompt := system.FormatSystemInfoForPrompt(systemInfo) + "\n" + issue
 
 	// Start conversation with initial issue including system info
-	messages := []openai.ChatCompletionMessage{
+	messages := []types.ChatMessage{
 		{
-			Role:    openai.ChatMessageRoleUser,
+			Role:    types.ChatMessageRoleUser,
 			Content: initialPrompt,
 		},
 	}
 
+	// Get NannyAPI URL
+	nannyAPIURL := a.apiURL
+	if nannyAPIURL == "" {
+		nannyAPIURL = os.Getenv("NANNYAPI_URL")
+	}
+
+	// Get Access Token
+	var accessToken string
+	if authMgr, ok := a.authManager.(interface {
+		LoadToken() (*types.AuthToken, error)
+	}); ok {
+		token, err := authMgr.LoadToken()
+		if err != nil {
+			return fmt.Errorf("failed to load token: %w", err)
+		}
+		accessToken = token.AccessToken
+	} else {
+		return fmt.Errorf("auth manager does not support required interfaces")
+	}
+
+	// Initialize investigations client
+	client := investigations.NewInvestigationsClient(nannyAPIURL)
+
 	for {
-		// Send request to TensorZero API via OpenAI SDK
-		response, err := a.SendRequestWithEpisode(messages, a.episodeID)
+		// Send request to TensorZero API via Investigations Client
+		content, err := client.SendDiagnosticMessage(accessToken, a.model, messages, a.investigationID)
 		if err != nil {
 			return fmt.Errorf("failed to send request: %w", err)
 		}
 
-		if len(response.Choices) == 0 {
-			return fmt.Errorf("no choices in response")
-		}
-
-		content := response.Choices[0].Message.Content
 		logging.Debug("AI Response: %s", content)
 
 		// Strip markdown code blocks if present
@@ -294,12 +310,12 @@ func (a *LinuxDiagnosticAgent) diagnoseIssueInternal(issue string) error {
 			}
 
 			// Add AI response and command results to conversation
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:    openai.ChatMessageRoleAssistant,
+			messages = append(messages, types.ChatMessage{
+				Role:    types.ChatMessageRoleAssistant,
 				Content: content,
 			})
-			messages = append(messages, openai.ChatCompletionMessage{
-				Role:    openai.ChatMessageRoleUser,
+			messages = append(messages, types.ChatMessage{
+				Role:    types.ChatMessageRoleUser,
 				Content: string(resultsJSON),
 			})
 
@@ -327,125 +343,9 @@ func (a *LinuxDiagnosticAgent) diagnoseIssueInternal(issue string) error {
 	return nil
 }
 
-// sendRequest sends a request to TensorZero via Supabase proxy (without episode ID)
-func (a *LinuxDiagnosticAgent) SendRequest(messages []openai.ChatCompletionMessage) (*openai.ChatCompletionResponse, error) {
-	return a.SendRequestWithEpisode(messages, "")
-}
-
 // ExecuteCommand executes a command using the agent's executor
 func (a *LinuxDiagnosticAgent) ExecuteCommand(cmd types.Command) types.CommandResult {
 	return a.executor.Execute(cmd)
-}
-
-// sendRequestWithEpisode sends a request to TensorZero via Supabase proxy with episode ID for conversation continuity
-func (a *LinuxDiagnosticAgent) SendRequestWithEpisode(messages []openai.ChatCompletionMessage, episodeID string) (*openai.ChatCompletionResponse, error) {
-	// Convert messages to the expected format
-	messageMaps := make([]map[string]interface{}, len(messages))
-	for i, msg := range messages {
-		messageMaps[i] = map[string]interface{}{
-			"role":    msg.Role,
-			"content": msg.Content,
-		}
-	}
-
-	// Create TensorZero request
-	tzRequest := map[string]interface{}{
-		"model":    a.model,
-		"messages": messageMaps,
-	}
-
-	// Add investigation ID to top-level for proxy routing
-	// This tells the backend to proxy the request to TensorZero instead of creating a new investigation
-	if a.investigationID != "" {
-		tzRequest["investigation_id"] = a.investigationID
-	}
-
-	// Marshal request
-	requestBody, err := json.Marshal(tzRequest)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	// Get NannyAPI URL
-	nannyAPIURL := os.Getenv("NANNYAPI_URL")
-
-	// Create HTTP request to investigations endpoint
-	// NannyAPI routes requests to /api/investigations for TensorZero integration
-	endpoint := fmt.Sprintf("%s/api/investigations", nannyAPIURL)
-	logging.Debug("Calling investigations endpoint at: %s", endpoint)
-	logging.Info("[TENSORZERO_API] POST %s:", endpoint)
-
-	var resp *http.Response
-
-	// Use AuthenticatedDo if available
-	if a.authManager != nil {
-		if authMgr, ok := a.authManager.(interface {
-			AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error)
-		}); ok {
-			headers := map[string]string{
-				"Content-Type": "application/json",
-				"Accept":       "application/json",
-			}
-			resp, err = authMgr.AuthenticatedDo("POST", endpoint, requestBody, headers)
-		} else {
-			return nil, fmt.Errorf("auth manager does not support AuthenticatedDo")
-		}
-	} else {
-		return nil, fmt.Errorf("authentication required")
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	// Check status code
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("TensorZero proxy error: %d, body: %s", resp.StatusCode, string(body))
-	}
-
-	// Parse response
-	var tzResponse map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&tzResponse); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	// Convert to OpenAI format for compatibility
-	choices, ok := tzResponse["choices"].([]interface{})
-	if !ok || len(choices) == 0 {
-		return nil, fmt.Errorf("no choices in response")
-	}
-
-	// Extract the first choice
-	firstChoice, ok := choices[0].(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("invalid choice format")
-	}
-
-	message, ok := firstChoice["message"].(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("invalid message format")
-	}
-
-	content, ok := message["content"].(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid content format")
-	}
-
-	// Create OpenAI-compatible response
-	response := &openai.ChatCompletionResponse{
-		Choices: []openai.ChatCompletionChoice{
-			{
-				Message: openai.ChatCompletionMessage{
-					Role:    openai.ChatMessageRoleAssistant,
-					Content: content,
-				},
-			},
-		},
-	}
-
-	return response, nil
 }
 
 // ConvertEBPFProgramsToTraceSpecs converts old EBPFProgram format to new TraceSpec format
