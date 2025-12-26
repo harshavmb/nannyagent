@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"nannyagentv2/internal/agent"
-	"nannyagentv2/internal/auth"
-	"nannyagentv2/internal/config"
-	"nannyagentv2/internal/logging"
-	"nannyagentv2/internal/metrics"
-	"nannyagentv2/internal/patches"
-	"nannyagentv2/internal/realtime"
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/agent"
+	"nannyagent/internal/auth"
+	"nannyagent/internal/config"
+	"nannyagent/internal/logging"
+	"nannyagent/internal/metrics"
+	"nannyagent/internal/patches"
+	"nannyagent/internal/realtime"
+	"nannyagent/internal/types"
 )
 
 const (
@@ -363,7 +363,20 @@ func runInteractiveDiagnostics(diagAgent *agent.LinuxDiagnosticAgent) {
 		}
 
 		// Process the issue with AI capabilities via TensorZero
-		if err := diagAgent.DiagnoseIssue(input); err != nil {
+		// First create investigation record
+		logging.Info("Creating investigation record...")
+
+		id, err := diagAgent.CreateInvestigation(input)
+		if err != nil {
+			logging.Error("Failed to create investigation record: %v", err)
+			continue
+		}
+
+		logging.Info("Created investigation ID: %s", id)
+
+		// Set ID on agent and run diagnosis
+		diagAgent.SetInvestigationID(id)
+		if err := diagAgent.DiagnoseIssueWithInvestigation(input); err != nil {
 			logging.Error("Diagnosis failed: %v", err)
 		}
 	}
@@ -484,7 +497,7 @@ func main() {
 	logging.Info("Authentication successful!")
 
 	// Initialize the diagnostic agent for interactive CLI use with authentication
-	diagAgent := agent.NewLinuxDiagnosticAgentWithAuth(authManager)
+	diagAgent := agent.NewLinuxDiagnosticAgentWithAuth(authManager, cfg.APIBaseURL)
 
 	// Handle --diagnose flag (one-off diagnosis)
 	if *diagnoseFlag != "" {
@@ -514,8 +527,10 @@ func main() {
 	go func() {
 		// Define the handler for investigations
 		investigationHandler := func(id, prompt string) {
+			prompt = strings.TrimSpace(prompt)
+
 			// Create a new agent instance for this investigation to ensure isolation
-			investigationAgent := agent.NewLinuxDiagnosticAgentWithAuth(authManager)
+			investigationAgent := agent.NewLinuxDiagnosticAgentWithAuth(authManager, cfg.APIBaseURL)
 			investigationAgent.SetInvestigationID(id)
 
 			if err := investigationAgent.DiagnoseIssueWithInvestigation(prompt); err != nil {

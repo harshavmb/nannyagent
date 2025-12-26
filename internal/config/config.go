@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"nannyagentv2/internal/logging"
+	"nannyagent/internal/logging"
 
 	"gopkg.in/yaml.v3"
 )

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"nannyagentv2/internal/logging"
+	"nannyagent/internal/logging"
 )
 
 // TraceSpec represents a trace specification similar to BCC trace.py
