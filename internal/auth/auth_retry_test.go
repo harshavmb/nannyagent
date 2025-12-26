@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"nannyagentv2/internal/config"
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/config"
+	"nannyagent/internal/types"
 )
 
 func TestAuthenticatedDo_ExpiredToken(t *testing.T) {

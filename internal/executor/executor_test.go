@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/types"
 )
 
 func TestCommandExecutor_Execute_BasicCommand(t *testing.T) {

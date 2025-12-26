@@ -175,6 +175,26 @@ install_dependencies() {
             log_error "Failed to install eBPF tools"
             exit 7
         }
+
+    elif command -v pacman &> /dev/null; then
+        PKG_MANAGER="pacman"
+        log_info "Detected Arch Linux system"
+        
+        log_info "Installing bpftrace, and unzip..."
+        pacman -Sy --noconfirm bpftrace unzip 2>&1 || {
+            log_error "Failed to install eBPF tools"
+            exit 7
+        }
+
+    elif command -v zypper &> /dev/null; then
+        PKG_MANAGER="zypper"
+        log_info "Detected openSUSE/SLE system"
+        
+        log_info "Installing bpftrace, and unzip..."
+        zypper install -y bpftrace unzip 2>&1 || {
+            log_error "Failed to install eBPF tools"
+            exit 7
+        }
         
     else
         log_error "Unsupported package manager"

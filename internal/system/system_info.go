@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"nannyagentv2/internal/executor"
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/executor"
+	"nannyagent/internal/types"
 )
 
 // SystemInfo represents basic system information

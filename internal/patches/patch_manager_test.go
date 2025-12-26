@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/types"
 )
 
 type MockAuthManager struct {

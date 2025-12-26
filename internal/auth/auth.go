@@ -13,9 +13,9 @@ import (
 
 	"github.com/shirou/gopsutil/v3/host"
 
-	"nannyagentv2/internal/config"
-	"nannyagentv2/internal/logging"
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/config"
+	"nannyagent/internal/logging"
+	"nannyagent/internal/types"
 )
 
 const (
@@ -558,7 +558,7 @@ func (am *AuthManager) AuthenticatedDo(method, url string, body []byte, headers 
 		}
 
 		// Check if token is expired locally and try to refresh proactively
-		if am.IsTokenExpired(token) {
+		if am.IsTokenExpired(token) && token.RefreshToken != "" {
 			logging.Info("Token expired locally, attempting refresh before request...")
 			newTokenResp, err := am.RefreshAccessToken(token.RefreshToken)
 			if err == nil {
@@ -605,6 +605,11 @@ func (am *AuthManager) AuthenticatedDo(method, url string, body []byte, headers 
 
 		if resp.StatusCode == http.StatusUnauthorized {
 			_ = resp.Body.Close()
+
+			if token.RefreshToken == "" {
+				return resp, nil
+			}
+
 			// Try refresh
 			logging.Info("Token expired, refreshing...")
 			newTokenResp, err := am.RefreshAccessToken(token.RefreshToken)

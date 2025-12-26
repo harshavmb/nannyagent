@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/types"
 )
 
 // CommandExecutor handles safe execution of diagnostic commands

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"nannyagentv2/internal/types"
+	"nannyagent/internal/types"
 )
 
 func TestNewCollector(t *testing.T) {
