@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"nannyagentv2/internal/agent"
@@ -327,7 +328,7 @@ func runStatusCommand() {
 }
 
 // runInteractiveDiagnostics starts the interactive diagnostic session
-func runInteractiveDiagnostics(diagAgent *agent.LinuxDiagnosticAgent) {
+func runInteractiveDiagnostics(diagAgent *agent.LinuxDiagnosticAgent, processedIDs *sync.Map, pendingPrompts *sync.Map) {
 	logging.Info("Linux Diagnostic Agent Started")
 	logging.Info("Enter a system issue description (or 'quit' to exit):")
 
@@ -363,7 +364,29 @@ func runInteractiveDiagnostics(diagAgent *agent.LinuxDiagnosticAgent) {
 		}
 
 		// Process the issue with AI capabilities via TensorZero
-		if err := diagAgent.DiagnoseIssue(input); err != nil {
+		// First create investigation record
+		logging.Info("Creating investigation record...")
+
+		// Mark prompt as pending to avoid race condition with SSE
+		pendingPrompts.Store(input, true)
+
+		id, err := diagAgent.CreateInvestigation(input)
+		if err != nil {
+			logging.Error("Failed to create investigation record: %v", err)
+			pendingPrompts.Delete(input)
+			continue
+		}
+
+		logging.Info("Created investigation ID: %s", id)
+
+		// Register this ID as processed so SSE handler ignores it
+		processedIDs.Store(id, true)
+		// Remove from pending prompts
+		pendingPrompts.Delete(input)
+
+		// Set ID on agent and run diagnosis
+		diagAgent.SetInvestigationID(id)
+		if err := diagAgent.DiagnoseIssueWithInvestigation(input); err != nil {
 			logging.Error("Diagnosis failed: %v", err)
 		}
 	}
@@ -483,8 +506,13 @@ func main() {
 
 	logging.Info("Authentication successful!")
 
+	// Track processed investigations to avoid duplicates
+	var processedIDs sync.Map
+	// Track pending local prompts to handle race conditions
+	var pendingPrompts sync.Map
+
 	// Initialize the diagnostic agent for interactive CLI use with authentication
-	diagAgent := agent.NewLinuxDiagnosticAgentWithAuth(authManager)
+	diagAgent := agent.NewLinuxDiagnosticAgentWithAuth(authManager, cfg.APIBaseURL)
 
 	// Handle --diagnose flag (one-off diagnosis)
 	if *diagnoseFlag != "" {
@@ -514,8 +542,35 @@ func main() {
 	go func() {
 		// Define the handler for investigations
 		investigationHandler := func(id, prompt string) {
+			prompt = strings.TrimSpace(prompt)
+
+			// Check if this matches a pending local prompt
+			if _, ok := pendingPrompts.Load(prompt); ok {
+				logging.Debug("Ignoring locally initiated investigation %s (matched prompt)", id)
+				// Also mark as processed to prevent future duplicates
+				processedIDs.Store(id, true)
+				return
+			}
+
+			// If prompt didn't match, it might be a race condition where the prompt string is slightly different
+			// or it's a genuine remote request.
+			// Wait a bit to see if the main thread registers this ID.
+			time.Sleep(1 * time.Second)
+
+			// Deduplicate by ID
+			if _, loaded := processedIDs.LoadOrStore(id, true); loaded {
+				logging.Debug("Ignoring duplicate investigation event for ID %s", id)
+				return
+			}
+
+			// Cleanup ID after 1 hour
+			go func() {
+				time.Sleep(1 * time.Hour)
+				processedIDs.Delete(id)
+			}()
+
 			// Create a new agent instance for this investigation to ensure isolation
-			investigationAgent := agent.NewLinuxDiagnosticAgentWithAuth(authManager)
+			investigationAgent := agent.NewLinuxDiagnosticAgentWithAuth(authManager, cfg.APIBaseURL)
 			investigationAgent.SetInvestigationID(id)
 
 			if err := investigationAgent.DiagnoseIssueWithInvestigation(prompt); err != nil {
@@ -591,7 +646,7 @@ func main() {
 
 	// Handle interactive mode (default if no flags)
 	if !*daemonFlag {
-		runInteractiveDiagnostics(diagAgent)
+		runInteractiveDiagnostics(diagAgent, &processedIDs, &pendingPrompts)
 		return
 	}
 }

@@ -1,8 +1,8 @@
 package agent
 
 import (
-	"testing"
 	"nannyagentv2/internal/types"
+	"testing"
 )
 
 // MockAuthManager
@@ -29,7 +29,7 @@ func TestNewLinuxDiagnosticAgentWithAuth(t *testing.T) {
 	mockAuth := &MockAuthManager{
 		Token: &types.AuthToken{AccessToken: "test-token"},
 	}
-	agent := NewLinuxDiagnosticAgentWithAuth(mockAuth)
+	agent := NewLinuxDiagnosticAgentWithAuth(mockAuth, "http://localhost:8090")
 	if agent == nil {
 		t.Fatal("Expected agent to be created")
 	}

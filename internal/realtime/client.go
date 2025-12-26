@@ -60,10 +60,10 @@ func (c *Client) Start() {
 			Timeout: 0, // No timeout for long-lived connections
 		}
 
-		logging.Info("Connecting to SSE at %s/api/realtime...", c.baseURL)
+		logging.Debug("Connecting to SSE at %s/api/realtime...", c.baseURL)
 		resp, err := customClient.Get(c.baseURL + "/api/realtime")
 		if err != nil {
-			logging.Error("Connection error: %v", err)
+			logging.Warning("Connection error: %v", err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
@@ -78,7 +78,7 @@ func (c *Client) Start() {
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil {
-				logging.Error("Error reading from stream during handshake: %v", err)
+				logging.Warning("Error reading from stream during handshake: %v", err)
 				break
 			}
 
@@ -98,12 +98,12 @@ func (c *Client) Start() {
 
 		if !connectSuccess {
 			_ = resp.Body.Close()
-			logging.Warning("Failed to get Client ID, retrying in 5s...")
+			logging.Debug("Failed to get Client ID, retrying in 5s...")
 			time.Sleep(5 * time.Second)
 			continue
 		}
 
-		logging.Info("Connected! Client ID: %s", clientId)
+		logging.Debug("Connected! Client ID: %s", clientId)
 
 		// --- STEP 2: Authorize & Subscribe ---
 		// This is where you tell PB: "I am this Agent, listen to 'investigations' and 'patch_operations'"
@@ -118,19 +118,19 @@ func (c *Client) Start() {
 
 		subResp, err := http.DefaultClient.Do(req)
 		if err != nil || subResp.StatusCode != 204 {
-			logging.Error("Subscription failed: %v", err)
+			logging.Warning("Subscription failed: %v", err)
 			_ = resp.Body.Close()
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		logging.Info("Subscribed to 'investigations' and 'patch_operations' successfully.")
+		logging.Debug("Subscribed to 'investigations' and 'patch_operations' successfully.")
 
 		// --- STEP 3: Listen for Records ---
-		logging.Info("Waiting for events...")
+		logging.Debug("Waiting for events...")
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil {
-				logging.Error("Connection lost: %v", err)
+				logging.Debug("Connection lost: %v", err)
 				break
 			}
 
@@ -213,7 +213,7 @@ func (c *Client) Start() {
 
 		// Close body and wait before reconnecting
 		_ = resp.Body.Close()
-		logging.Info("Reconnecting in 5 seconds...")
+		logging.Debug("Reconnecting in 5 seconds...")
 		time.Sleep(5 * time.Second)
 	}
 }

@@ -24,8 +24,8 @@ func TestInvestigationsClient_CreateInvestigation(t *testing.T) {
 		t.Fatal("http client should not be nil")
 	}
 
-	if client.client.Timeout != 30*time.Second {
-		t.Errorf("expected timeout to be 30s, got %v", client.client.Timeout)
+	if client.client.Timeout != 5*time.Minute {
+		t.Errorf("expected timeout to be 5m, got %v", client.client.Timeout)
 	}
 }
 
@@ -235,7 +235,7 @@ func TestInvestigationsClient_MultipleStatuses(t *testing.T) {
 func TestInvestigationsClient_Timeout(t *testing.T) {
 	client := NewInvestigationsClient("http://127.0.0.1:8090")
 
-	if client.client.Timeout != 30*time.Second {
-		t.Errorf("expected client timeout to be 30 seconds, got %v", client.client.Timeout)
+	if client.client.Timeout != 5*time.Minute {
+		t.Errorf("expected client timeout to be 5 minutes, got %v", client.client.Timeout)
 	}
 }
