@@ -471,8 +471,9 @@ portal_url: "https://nannyai.dev"
 token_path: "/var/lib/nannyagent/token.json"
 
 # Metrics collection interval in seconds (optional)
-# Default: 30
+# Default: 30 for node, 300 for proxmox
 metrics_interval: 30
+proxmox_interval: 300
 
 # Debug mode (optional)
 # Default: false

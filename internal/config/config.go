@@ -19,6 +19,7 @@ type Config struct {
 	// Agent Configuration
 	TokenPath       string `yaml:"token_path"`
 	MetricsInterval int    `yaml:"metrics_interval"`
+	ProxmoxInterval int    `yaml:"proxmox_interval"`
 
 	// Debug/Development
 	Debug bool `yaml:"debug"`
@@ -28,6 +29,7 @@ var DefaultConfig = Config{
 	TokenPath:       "/var/lib/nannyagent/token.json", // Default to system directory
 	PortalURL:       "https://nannyai.dev",            // Default portal URL
 	MetricsInterval: 30,
+	ProxmoxInterval: 5 * 60, // Default 5 minutes
 	Debug:           false,
 }
 
