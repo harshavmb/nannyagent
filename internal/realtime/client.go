@@ -173,6 +173,16 @@ func (c *Client) Start() {
 											payload.ScriptArgs = args
 										}
 
+										// Optional LXC ID
+										if lxcID, okLXC := msg.Record["lxc_id"].(string); okLXC {
+											payload.LXCID = lxcID
+										}
+
+										// Optional VMID
+										if vmid, ok := parseVMID(msg.Record["vmid"]); ok {
+											payload.VMID = vmid
+										}
+
 										logging.Info("Received patch operation: %s (mode: %s)", operationID, mode)
 
 										if c.patchHandler != nil {
@@ -215,5 +225,22 @@ func (c *Client) Start() {
 		_ = resp.Body.Close()
 		logging.Debug("Reconnecting in 5 seconds...")
 		time.Sleep(5 * time.Second)
+	}
+}
+
+func parseVMID(v interface{}) (string, bool) {
+	switch v := v.(type) {
+	case string:
+		return v, true
+	case float64:
+		// Use %v to preserve as integer representation without decimal
+		return fmt.Sprintf("%v", v), true
+	case int, int32, int64:
+		return fmt.Sprintf("%d", v), true
+	case nil:
+		return "", false
+	default:
+		// Try string conversion as fallback
+		return fmt.Sprintf("%v", v), true
 	}
 }

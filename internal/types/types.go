@@ -559,6 +559,8 @@ type AgentPatchPayload struct {
 	ScriptID    string `json:"script_id"`
 	ScriptURL   string `json:"script_url"`
 	ScriptArgs  string `json:"script_args"`
+	LXCID       string `json:"lxc_id,omitempty"`
+	VMID        string `json:"vmid,omitempty"`
 	Timestamp   string `json:"timestamp"`
 }
 
@@ -570,6 +572,7 @@ type AgentPatchResult struct {
 	ErrorMsg    string             `json:"error_msg"`
 	PackageList []PatchPackageInfo `json:"package_list"` // Packages that were changed
 	Duration    int64              `json:"duration_ms"`
+	LXCID       string             `json:"lxc_id,omitempty"`
 	Timestamp   string             `json:"timestamp"`
 }
 
