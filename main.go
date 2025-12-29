@@ -17,6 +17,7 @@ import (
 	"nannyagent/internal/logging"
 	"nannyagent/internal/metrics"
 	"nannyagent/internal/patches"
+	"nannyagent/internal/proxmox"
 	"nannyagent/internal/realtime"
 	"nannyagent/internal/types"
 )
@@ -588,6 +589,10 @@ func main() {
 			}
 		}
 	}()
+
+	// Start Proxmox collector
+	proxmoxManager := proxmox.NewManager(cfg, authManager)
+	proxmoxManager.Start()
 
 	// Check if running in daemon mode
 	if *daemonFlag {
