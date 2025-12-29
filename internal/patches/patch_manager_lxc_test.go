@@ -163,7 +163,10 @@ func TestPatchManager_HandlePatchOperation_LXC(t *testing.T) {
 			lxcID := r.FormValue("lxc_id")
 			if lxcID != "lxc-uuid-123" {
 				w.WriteHeader(http.StatusBadRequest)
-				_, _ = w.Write([]byte(fmt.Sprintf("Expected lxc_id=lxc-uuid-123, got %s", lxcID)))
+				_, err := fmt.Fprintf(w, "Expected lxc_id=lxc-uuid-123, got %s", lxcID)
+				if err != nil {
+					t.Fatalf("Failed to write response: %v", err)
+				}
 				return
 			}
 

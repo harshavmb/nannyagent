@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"nannyagent/internal/auth"
@@ -21,6 +22,7 @@ type Manager struct {
 	auth      Authenticator
 	config    *config.Config
 	stopChan  chan struct{}
+	stopOnce  sync.Once
 }
 
 func NewManager(cfg *config.Config, auth *auth.AuthManager) *Manager {
@@ -48,7 +50,9 @@ func (m *Manager) Start() {
 }
 
 func (m *Manager) Stop() {
-	close(m.stopChan)
+	m.stopOnce.Do(func() {
+		close(m.stopChan)
+	})
 }
 
 func (m *Manager) runLoop() {

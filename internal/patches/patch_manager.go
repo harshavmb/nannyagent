@@ -97,7 +97,7 @@ func (pm *PatchManager) HandlePatchOperation(payload types.AgentPatchPayload) er
 		// Note: We need to read the script content to pass it to bash -c
 		scriptContent, err := os.ReadFile(scriptPath)
 		if err != nil {
-			return pm.reportFailure(payload.OperationID, fmt.Sprintf("Failed to read script for LXC execution: %v", err))
+			return pm.reportFailure(payload.OperationID, fmt.Sprintf("Failed to read script %q for LXC execution: %v", scriptPath, err))
 		}
 
 		// Use VMID if available (preferred for Proxmox), otherwise fallback to LXCID

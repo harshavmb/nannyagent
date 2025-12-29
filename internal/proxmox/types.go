@@ -36,12 +36,12 @@ type ProxmoxLXC struct {
 	ClusterID string `json:"cluster_id,omitempty" db:"cluster_id"`
 	NodeID    string `json:"node_id" db:"node_id"`
 	Name      string `json:"name" db:"name"`
-	LXCID     string `json:"lxc_id" db:"lxc_id"` // from 'id' field in resources
+	LXCID     string `json:"lxc_id" db:"lxc_id"` // from 'id' field in proxmox resources example lxc/100
 	Status    string `json:"status" db:"status"`
 	OSType    string `json:"ostype" db:"ostype"`
 	Uptime    int    `json:"uptime" db:"uptime"`
-	VMID      int    `json:"vmid" db:"vmid"`
-	Node      string `json:"node"` // Used for matching
+	VMID      int    `json:"vmid" db:"vmid"` // from 'vmid' field in proxmox resources example 100
+	Node      string `json:"node"`           // Used for matching
 }
 
 // ProxmoxQemu represents a QEMU/KVM virtual machine in Proxmox.
