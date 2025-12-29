@@ -173,6 +173,18 @@ func (c *Client) Start() {
 											payload.ScriptArgs = args
 										}
 
+										// Optional LXC ID
+										if lxcID, okLXC := msg.Record["lxc_id"].(string); okLXC {
+											payload.LXCID = lxcID
+										}
+
+										// Optional VMID
+										if vmid, okVMID := msg.Record["vmid"].(string); okVMID {
+											payload.VMID = vmid
+										} else if vmidFloat, okVMIDFloat := msg.Record["vmid"].(float64); okVMIDFloat {
+											payload.VMID = fmt.Sprintf("%d", int(vmidFloat))
+										}
+
 										logging.Info("Received patch operation: %s (mode: %s)", operationID, mode)
 
 										if c.patchHandler != nil {

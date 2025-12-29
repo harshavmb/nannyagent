@@ -19,6 +19,9 @@ import (
 	"nannyagent/internal/types"
 )
 
+// execCommand allows mocking exec.Command in tests
+var execCommand = exec.Command
+
 // PatchManager handles patch operations
 type PatchManager struct {
 	baseURL     string
@@ -87,7 +90,46 @@ func (pm *PatchManager) HandlePatchOperation(payload types.AgentPatchPayload) er
 		args = append(args, payload.ScriptArgs)
 	}
 
-	cmd := exec.Command(scriptPath, args...)
+	var cmd *exec.Cmd
+	if payload.LXCID != "" {
+		// Run on LXC container using pct exec
+		// Command: pct exec <vmid> -- bash -c "$(cat <scriptPath>)" -- <args>
+		// Note: We need to read the script content to pass it to bash -c
+		scriptContent, err := os.ReadFile(scriptPath)
+		if err != nil {
+			return pm.reportFailure(payload.OperationID, fmt.Sprintf("Failed to read script for LXC execution: %v", err))
+		}
+
+		// Use VMID if available (preferred for Proxmox), otherwise fallback to LXCID
+		targetID := payload.LXCID
+		if payload.VMID != "" {
+			targetID = payload.VMID
+		}
+
+		// Construct the bash command to run inside the container
+		// We use "$(cat ...)" in the prompt description, but since we are constructing the command programmatically,
+		// we can just pass the script content directly to bash -c.
+		// However, passing large scripts as arguments can be problematic.
+		// A safer way is to pipe the script to bash's stdin, but `pct exec` might not handle stdin piping easily to the inner process.
+		// The user suggested: `pct exec <lxc_id> -- bash -c "$(cat <patch-script-path>)" -- <--dry-run>`
+		// This implies the `cat` happens on the host.
+		// So the command structure is:
+		// pct exec <vmid> -- bash -c "<script_content>" -- <args>
+
+		// Let's construct the inner bash command
+		// We need to be careful with escaping.
+		// Actually, the user's command `bash -c "$(cat <patch-script-path>)"` expands the file content into the command string.
+		// So we are effectively doing: bash -c "content_of_script" -- args
+
+		// Let's reconstruct the arguments for pct exec.
+		pctArgs := []string{"exec", targetID, "--", "bash", "-c", string(scriptContent), "--"}
+		pctArgs = append(pctArgs, args...)
+
+		cmd = execCommand("pct", pctArgs...)
+	} else {
+		// Run on Host
+		cmd = execCommand(scriptPath, args...)
+	}
 
 	// Capture stdout and stderr
 	var stdoutBuf, stderrBuf bytes.Buffer
@@ -116,6 +158,7 @@ func (pm *PatchManager) HandlePatchOperation(payload types.AgentPatchPayload) er
 		OperationID: payload.OperationID,
 		Success:     exitCode == 0,
 		Duration:    duration.Milliseconds(),
+		LXCID:       payload.LXCID,
 		Timestamp:   time.Now().Format(time.RFC3339),
 	}
 
@@ -252,6 +295,11 @@ func (pm *PatchManager) uploadResults(operationID string, exitCode int, stdout, 
 
 	// Add exit code
 	_ = writer.WriteField("exit_code", fmt.Sprintf("%d", exitCode))
+
+	// Add lxc_id if present
+	if result.LXCID != "" {
+		_ = writer.WriteField("lxc_id", result.LXCID)
+	}
 
 	// Add stdout file
 	part, err := writer.CreateFormFile("stdout_file", "stdout.txt")
