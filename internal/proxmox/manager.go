@@ -3,6 +3,7 @@ package proxmox
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"nannyagent/internal/auth"
@@ -10,16 +11,26 @@ import (
 	"nannyagent/internal/logging"
 )
 
+// Authenticator defines the interface for authenticated requests
+type Authenticator interface {
+	AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error)
+}
+
 type Manager struct {
 	collector *Collector
-	auth      *auth.AuthManager
+	auth      Authenticator
 	config    *config.Config
 	stopChan  chan struct{}
 }
 
 func NewManager(cfg *config.Config, auth *auth.AuthManager) *Manager {
+	return NewManagerWithCollector(cfg, auth, NewCollector(&RealCommandExecutor{}))
+}
+
+// NewManagerWithCollector creates a new manager with a custom collector (useful for testing)
+func NewManagerWithCollector(cfg *config.Config, auth Authenticator, collector *Collector) *Manager {
 	return &Manager{
-		collector: NewCollector(&RealCommandExecutor{}),
+		collector: collector,
 		auth:      auth,
 		config:    cfg,
 		stopChan:  make(chan struct{}),
@@ -47,7 +58,7 @@ func (m *Manager) runLoop() {
 	// Run immediately
 	m.collectAndSend()
 
-	ticker := time.NewTicker(time.Duration(m.config.ProxmoxInterval) * time.Minute)
+	ticker := time.NewTicker(time.Duration(m.config.ProxmoxInterval) * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -79,7 +90,7 @@ func (m *Manager) collectAndSend() {
 	}
 
 	// Collect Cluster Info (only if node ID is 1)
-	// we haev to see a better way to stop sending duplicate cluster info
+	// we have to find a better way to stop sending duplicate cluster info
 	// from other nodes, for now disable it
 	//if nodeInfo.NodeID == 1 {
 	clusterInfo, err := m.collector.CollectClusterInfo()

@@ -29,7 +29,7 @@ var DefaultConfig = Config{
 	TokenPath:       "/var/lib/nannyagent/token.json", // Default to system directory
 	PortalURL:       "https://nannyai.dev",            // Default portal URL
 	MetricsInterval: 30,
-	ProxmoxInterval: 5 * 60, // Default 5 minutes
+	ProxmoxInterval: 5 * 60, // Default to 300 seconds (5 minutes)
 	Debug:           false,
 }
 

@@ -158,8 +158,6 @@ func (c *Collector) CollectNodeInfo() (*ProxmoxNode, error) {
 	nodeConfig, err := c.GetNodeConfig(nodeName)
 	if err != nil {
 		logging.Error("Failed to get node config: %v", err)
-		// Continue with partial info? Or fail?
-		// Let's try to get pveversion from node config
 	}
 
 	pveVersion := ""
