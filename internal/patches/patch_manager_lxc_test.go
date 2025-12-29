@@ -3,6 +3,7 @@ package patches
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -37,7 +38,7 @@ func TestHelperProcess(t *testing.T) {
 
 	// Handle "pct" command
 	if cmd == "pct" {
-		// Expected args: exec <lxc_id> -- bash -c <script_content> -- <args>
+		// Expected args: exec <lxc_id> -- bash -s -- <args>
 		if len(args) < 5 {
 			fmt.Fprintf(os.Stderr, "Invalid pct args: %v\n", args)
 			os.Exit(1)
@@ -61,26 +62,33 @@ func TestHelperProcess(t *testing.T) {
 		}
 
 		// Check bash command
-		if args[3] != "bash" || args[4] != "-c" {
-			fmt.Fprintf(os.Stderr, "Expected 'bash -c', got '%s %s'\n", args[3], args[4])
+		if args[3] != "bash" || args[4] != "-s" {
+			fmt.Fprintf(os.Stderr, "Expected 'bash -s', got '%s %s'\n", args[3], args[4])
 			os.Exit(1)
 		}
 
-		scriptContent := args[5]
+		// Read script content from stdin
+		scriptContentBytes, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to read stdin: %v\n", err)
+			os.Exit(1)
+		}
+		scriptContent := string(scriptContentBytes)
+
 		if !strings.Contains(scriptContent, "echo 'lxc patch'") {
 			fmt.Fprintf(os.Stderr, "Script content mismatch. Got: %s\n", scriptContent)
 			os.Exit(1)
 		}
 
 		// Check trailing "--"
-		if args[6] != "--" {
-			fmt.Fprintf(os.Stderr, "Expected trailing '--', got '%s'\n", args[6])
+		if args[5] != "--" {
+			fmt.Fprintf(os.Stderr, "Expected trailing '--', got '%s'\n", args[5])
 			os.Exit(1)
 		}
 
 		// Check extra args (mode)
-		if len(args) > 7 {
-			mode := args[7]
+		if len(args) > 6 {
+			mode := args[6]
 			if mode != "--dry-run" && mode != "--apply" {
 				fmt.Fprintf(os.Stderr, "Unexpected mode arg: %s\n", mode)
 				os.Exit(1)

@@ -106,26 +106,14 @@ func (pm *PatchManager) HandlePatchOperation(payload types.AgentPatchPayload) er
 			targetID = payload.VMID
 		}
 
-		// Construct the bash command to run inside the container
-		// We use "$(cat ...)" in the prompt description, but since we are constructing the command programmatically,
-		// we can just pass the script content directly to bash -c.
-		// However, passing large scripts as arguments can be problematic.
-		// A safer way is to pipe the script to bash's stdin, but `pct exec` might not handle stdin piping easily to the inner process.
-		// The user suggested: `pct exec <lxc_id> -- bash -c "$(cat <patch-script-path>)" -- <--dry-run>`
-		// This implies the `cat` happens on the host.
-		// So the command structure is:
-		// pct exec <vmid> -- bash -c "<script_content>" -- <args>
-
-		// Let's construct the inner bash command
-		// We need to be careful with escaping.
-		// Actually, the user's command `bash -c "$(cat <patch-script-path>)"` expands the file content into the command string.
-		// So we are effectively doing: bash -c "content_of_script" -- args
-
-		// Let's reconstruct the arguments for pct exec.
-		pctArgs := []string{"exec", targetID, "--", "bash", "-c", string(scriptContent), "--"}
+		// Execute the script inside the container by piping it to bash -s
+		// This avoids copying the file to the container, avoids ARG_MAX limits, and hides content from ps.
+		// bash -s reads commands from stdin
+		pctArgs := []string{"exec", targetID, "--", "bash", "-s", "--"}
 		pctArgs = append(pctArgs, args...)
 
 		cmd = execCommand("pct", pctArgs...)
+		cmd.Stdin = bytes.NewReader(scriptContent)
 	} else {
 		// Run on Host
 		cmd = execCommand(scriptPath, args...)
