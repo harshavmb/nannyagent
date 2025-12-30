@@ -359,7 +359,7 @@ Secure script execution for system remediation:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    NannyAI Platform                      │
+│                    NannyAI Platform                     │
 │  (Web Portal + NannyAPI + TensorZero AI)                │
 └───────────────────────┬─────────────────────────────────┘
                         │
@@ -369,7 +369,7 @@ Secure script execution for system remediation:
         │               │               │
         ▼               ▼               ▼
 ┌───────────────────────────────────────────────────────────┐
-│                    NannyAgent                              │
+│                    NannyAgent                             │
 │  ┌─────────────────────────────────────────────────────┐  │
 │  │ Core Components:                                    │  │
 │  │ • Auth Manager (OAuth Device Flow)                  │  │

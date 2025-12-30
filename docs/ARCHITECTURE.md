@@ -28,11 +28,11 @@ NannyAgent is a sophisticated Linux diagnostic agent built in Go that combines A
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                          NannyAI Platform                            │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
-│  │  Web Portal  │  │   NannyAPI   │  │  TensorZero AI Engine    │  │
+│                          NannyAI Platform                           │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐   │
+│  │  Web Portal  │  │   NannyAPI   │  │  TensorZero AI Engine    │   │
 │  │              │  │  (REST/SSE)  │  │  (Diagnostic Intelligence)│  │
-│  └──────┬───────┘  └──────┬───────┘  └───────────┬──────────────┘  │
+│  └──────┬───────┘  └──────┬───────┘  └───────────┬──────────────┘   │
 └─────────┼──────────────────┼──────────────────────┼─────────────────┘
           │                  │                      │
           │ Device Auth      │ REST API             │ AI Inference
@@ -42,46 +42,46 @@ NannyAgent is a sophisticated Linux diagnostic agent built in Go that combines A
                              │
                              ▼
           ┌──────────────────────────────────────────────────────┐
-          │              NannyAgent (This Component)              │
+          │              NannyAgent (This Component)             │
           │  ┌────────────────────────────────────────────────┐  │
           │  │           Agent Core (main.go)                 │  │
           │  │  - Daemon Management                           │  │
           │  │  - Command-line Interface                      │  │
           │  │  - Lifecycle Management                        │  │
           │  └─────────────────┬──────────────────────────────┘  │
-          │                    │                                  │
+          │                    │                                 │
           │  ┌─────────────────┴──────────────────────────────┐  │
-          │  │                                                 │  │
+          │  │                                                │  │
 ┌─────────┼──▼─────────┬──────────┬──────────┬────────────────┼──┼─────────┐
 │         │  Auth      │  Config  │  Logging │  System Info   │  │         │
 │         │  Manager   │  Manager │  Manager │  Collector     │  │         │
 │         └────────────┴──────────┴──────────┴────────────────┘  │         │
-│                                                                 │         │
+│                                                                │         │
 │  ┌──────────────────────────────────────────────────────────┐  │         │
 │  │              Diagnostic Agent (agent.go)                 │  │         │
 │  │  - AI Conversation Management                            │  │         │
 │  │  - Investigation Lifecycle                               │  │         │
 │  │  - Command Execution Orchestration                       │  │         │
 │  └──────────┬───────────────────────────────────────────────┘  │         │
-│             │                                                   │         │
+│             │                                                  │         │
 │  ┌──────────┴───────────────────────────────────────────────┐  │         │
-│  │                                                           │  │         │
+│  │                                                          │  │         │
 │  ▼                    ▼                  ▼                  ▼  │         │
-│ ┌────────────┐  ┌──────────┐  ┌─────────────┐  ┌──────────┐  │         │
-│ │  eBPF      │  │ Command  │  │Investigations│  │ Realtime │  │         │
-│ │  Trace     │  │ Executor │  │   Client     │  │  Client  │  │         │
-│ │  Manager   │  │          │  │              │  │  (SSE)   │  │         │
-│ └────────────┘  └──────────┘  └─────────────┘  └──────────┘  │         │
-│                                                                 │         │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────┐   │         │
-│  │   Metrics    │  │   Proxmox    │  │  Patch Manager     │   │         │
-│  │  Collector   │  │  Manager     │  │                    │   │         │
-│  └──────────────┘  └──────────────┘  └────────────────────┘   │         │
+│ ┌────────────┐  ┌──────────┐  ┌─────────────┐  ┌──────────┐    │         │
+│ │  eBPF      │  │ Command  │  │Investigations│  │ Realtime │   │         │
+│ │  Trace     │  │ Executor │  │   Client     │  │  Client  │   │         │
+│ │  Manager   │  │          │  │              │  │  (SSE)   │   │         │
+│ └────────────┘  └──────────┘  └─────────────┘  └──────────┘    │         │
+│                                                                │         │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────┐    │         │
+│  │   Metrics    │  │   Proxmox    │  │  Patch Manager     │    │         │
+│  │  Collector   │  │  Manager     │  │                    │    │         │
+│  └──────────────┘  └──────────────┘  └────────────────────┘    │         │
 └─────────────────────────────────────────────────────────────────────────┘
                              │
                              ▼
           ┌──────────────────────────────────────────────────────┐
-          │              Linux Kernel & System                    │
+          │              Linux Kernel & System                   │
           │  - eBPF Subsystem (bpftrace)                         │
           │  - System Metrics (gopsutil)                         │
           │  - Proxmox VE APIs (pvesh, pct)                      │
@@ -130,7 +130,7 @@ Implements OAuth 2.0 Device Flow for secure agent registration.
        │                             │    & enters user_code       │
        │                             │<────────────────────────────┤
        │                             │ 5. Authorize device         │
-       │                             │─────────────────────────────>│
+       │                             │────────────────────────────>│
        │                             │                             │
        │ 6. Poll for token           │                             │
        ├────────────────────────────>│                             │
@@ -174,7 +174,7 @@ The brain of the diagnostic system that orchestrates AI-powered issue resolution
 **Agent Workflow:**
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ 1. User Input: "PostgreSQL is slow"                             │
+│ 1. User Input: "PostgreSQL is slow"                              │
 └──────────────────────────┬───────────────────────────────────────┘
                            │
                            ▼
@@ -195,41 +195,41 @@ The brain of the diagnostic system that orchestrates AI-powered issue resolution
                            ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │ 4. Send to TensorZero AI (via /api/investigations)               │
-│    Request:                                                       │
-│    {                                                              │
+│    Request:                                                      │
+│    {                                                             │
 │      "model": "tensorzero::function_name::diagnose_and_heal",    │
-│      "messages": [                                                │
-│        {                                                          │
-│          "role": "user",                                          │
+│      "messages": [                                               │
+│        {                                                         │
+│          "role": "user",                                         │
 │          "content": "<system_info>\n<issue>"                     │
-│        }                                                          │
-│      ],                                                           │
+│        }                                                         │
+│      ],                                                          │
 │      "investigation_id": "<uuid>"                                │
-│    }                                                              │
+│    }                                                             │
 └──────────────────────────┬───────────────────────────────────────┘
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │ 5. AI Response (Diagnostic Phase)                                │
-│    {                                                              │
+│    {                                                             │
 │      "response_type": "diagnostic",                              │
 │      "reasoning": "Need to check disk I/O and query patterns",   │
-│      "commands": [                                                │
-│        {                                                          │
-│          "id": "pg_stats",                                        │
+│      "commands": [                                               │
+│        {                                                         │
+│          "id": "pg_stats",                                       │
 │          "command": "psql -c 'SELECT * FROM pg_stat_database'",  │
 │          "description": "Check PostgreSQL stats"                 │
-│        }                                                          │
-│      ],                                                           │
-│      "ebpf_programs": [                                           │
-│        {                                                          │
+│        }                                                         │
+│      ],                                                          │
+│      "ebpf_programs": [                                          │
+│        {                                                         │
 │          "name": "disk_io_trace",                                │
 │          "type": "tracepoint",                                   │
 │          "target": "block:block_rq_complete",                    │
-│          "duration": 15                                           │
-│        }                                                          │
-│      ]                                                            │
-│    }                                                              │
+│          "duration": 15                                          │
+│        }                                                         │
+│      ]                                                           │
+│    }                                                             │
 └──────────────────────────┬───────────────────────────────────────┘
                            │
                            ▼
@@ -243,23 +243,23 @@ The brain of the diagnostic system that orchestrates AI-powered issue resolution
                            ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │ 7. Send Results Back to AI                                       │
-│    {                                                              │
-│      "role": "user",                                              │
-│      "content": {                                                 │
+│    {                                                             │
+│      "role": "user",                                             │
+│      "content": {                                                │
 │        "commands": [...results...],                              │
 │        "ebpf_traces": [...events...]                             │
-│      }                                                            │
-│    }                                                              │
+│      }                                                           │
+│    }                                                             │
 └──────────────────────────┬───────────────────────────────────────┘
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│ 8. AI Response (Resolution Phase)                                │
+│ 8. AI Response (Resolution Phase)                                 │
 │    {                                                              │
-│      "response_type": "resolution",                              │
+│      "response_type": "resolution",                               │
 │      "root_cause": "Slow disk I/O due to heavy checkpoint writes",│
-│      "resolution_plan": "1. Increase checkpoint intervals...",   │
-│      "confidence": "High"                                        │
+│      "resolution_plan": "1. Increase checkpoint intervals...",    │
+│      "confidence": "High"                                         │
 │    }                                                              │
 └──────────────────────────┬───────────────────────────────────────┘
                            │
@@ -565,14 +565,14 @@ Executes patch scripts for system remediation with security validation.
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │ 1. Receive Patch Operation (via SSE)                             │
-│    {                                                              │
+│    {                                                             │
 │      "operation_id": "patch-op-123",                             │
 │      "mode": "dry-run",                                          │
-│      "script_url": "/api/patches/patch-001/script",             │
+│      "script_url": "/api/patches/patch-001/script",              │
 │      "script_id": "patch-001",                                   │
 │      "lxc_id": "lxc-100",                                        │
 │      "vmid": "100"                                               │
-│    }                                                              │
+│    }                                                             │
 └──────────────────────────┬───────────────────────────────────────┘
                            │
                            ▼
@@ -583,7 +583,7 @@ Executes patch scripts for system remediation with security validation.
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│ 3. Download Script                                                │
+│ 3. Download Script                                               │
 │    GET /api/patches/patch-001/script                             │
 │    Authorization: Bearer <token>                                 │
 │    -> /tmp/nanny-patch-XXXXXX/patch_script                       │
@@ -591,32 +591,32 @@ Executes patch scripts for system remediation with security validation.
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│ 4. Validate SHA256                                                │
+│ 4. Validate SHA256                                               │
 │    GET /api/patches/patch-001/sha256                             │
 │    Compare with downloaded script hash                           │
 └──────────────────────────┬───────────────────────────────────────┘
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│ 5. Make Executable                                                │
+│ 5. Make Executable                                               │
 │    chmod 0700 /tmp/nanny-patch-XXXXXX/patch_script               │
 └──────────────────────────┬───────────────────────────────────────┘
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│ 6. Execute Script                                                 │
-│                                                                   │
-│    Host Execution:                                                │
+│ 6. Execute Script                                                │
+│                                                                  │
+│    Host Execution:                                               │
 │    ./patch_script --dry-run                                      │
-│                                                                   │
-│    LXC Execution:                                                 │
+│                                                                  │
+│    LXC Execution:                                                │
 │    pct exec 100 -- bash -s -- --dry-run < patch_script           │
-│                                                                   │
+│                                                                  │
 └──────────────────────────┬───────────────────────────────────────┘
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│ 7. Collect Outputs                                                │
+│ 7. Collect Outputs                                               │
 │    - Capture stdout (JSON package list if available)             │
 │    - Capture stderr (errors/warnings)                            │
 │    - Record exit code                                            │
@@ -625,12 +625,12 @@ Executes patch scripts for system remediation with security validation.
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│ 8. Upload Results                                                 │
+│ 8. Upload Results                                                │
 │    POST /api/patches/patch-op-123/results                        │
 │    Authorization: Bearer <token>                                 │
 │    Content-Type: multipart/form-data                             │
-│                                                                   │
-│    Fields:                                                        │
+│                                                                  │
+│    Fields:                                                       │
 │    - metadata: JSON result object                                │
 │    - stdout: stdout.txt file                                     │
 │    - stderr: stderr.txt file                                     │
@@ -638,7 +638,7 @@ Executes patch scripts for system remediation with security validation.
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│ 9. Cleanup                                                        │
+│ 9. Cleanup                                                       │
 │    rm -rf /tmp/nanny-patch-XXXXXX/                               │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -685,54 +685,54 @@ Every 30 seconds (configurable via metrics_interval):
 │                          METRICS COLLECTION FLOW                        │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  ┌────────────────┐                                                    │
-│  │ Metrics Timer  │                                                    │
-│  │  (30s interval)│                                                    │
-│  └────────┬───────┘                                                    │
-│           │                                                            │
-│           ▼                                                            │
-│  ┌─────────────────────────────────────┐                              │
-│  │  Collect System Metrics (gopsutil)  │                              │
-│  │  • CPU usage, cores, model          │                              │
-│  │  • Memory total/used/available      │                              │
-│  │  • Disk usage, filesystems          │                              │
-│  │  • Network RX/TX, IP addresses      │                              │
-│  │  • Load averages (1/5/15 min)       │                              │
-│  │  • Block devices & partitions       │                              │
-│  └────────┬────────────────────────────┘                              │
-│           │                                                            │
-│           ▼                                                            │
-│  ┌─────────────────────────────────────┐                              │
-│  │   Build SystemMetrics JSON Struct   │                              │
-│  │   {                                 │                              │
-│  │     "timestamp": "2025-12-30...",   │                              │
-│  │     "hostname": "prod-web-01",      │                              │
-│  │     "cpu_usage": 45.2,              │                              │
-│  │     "memory_total": 68719476736,    │                              │
-│  │     "disk_usage": 67.8,             │                              │
-│  │     "network_in_gb": 123.45,        │                              │
-│  │     "load_avg_1": 2.15,             │                              │
-│  │     ...                             │                              │
-│  │   }                                 │                              │
-│  └────────┬────────────────────────────┘                              │
-│           │                                                            │
-│           ▼                                                            │
-│  ┌─────────────────────────────────────┐                              │
-│  │    POST /api/agent                  │                              │
-│  │    Authorization: Bearer <token>    │                              │
-│  │    Content-Type: application/json   │                              │
-│  │                                     │                              │
-│  │    Body: SystemMetrics JSON         │                              │
-│  └────────┬────────────────────────────┘                              │
-│           │                                                            │
-│           ▼                                                            │
-│  ┌─────────────────────────────────────┐                              │
-│  │       NannyAPI Backend              │                              │
-│  │  ✓ Validates authentication token   │                              │
-│  │  ✓ Stores metrics in database       │                              │
-│  │  ✓ Triggers alerts if thresholds    │                              │
-│  │  ✓ Returns 200 OK                   │                              │
-│  └─────────────────────────────────────┘                              │
+│  ┌────────────────┐                                                     │
+│  │ Metrics Timer  │                                                     │
+│  │  (30s interval)│                                                     │
+│  └────────┬───────┘                                                     │
+│           │                                                             │
+│           ▼                                                             │
+│  ┌─────────────────────────────────────┐                                │
+│  │  Collect System Metrics (gopsutil)  │                                │
+│  │  • CPU usage, cores, model          │                                │
+│  │  • Memory total/used/available      │                                │
+│  │  • Disk usage, filesystems          │                                │
+│  │  • Network RX/TX, IP addresses      │                                │
+│  │  • Load averages (1/5/15 min)       │                                │
+│  │  • Block devices & partitions       │                                │
+│  └────────┬────────────────────────────┘                                │
+│           │                                                             │
+│           ▼                                                             │
+│  ┌─────────────────────────────────────┐                                │
+│  │   Build SystemMetrics JSON Struct   │                                │
+│  │   {                                 │                                │
+│  │     "timestamp": "2025-12-30...",   │                                │
+│  │     "hostname": "prod-web-01",      │                                │
+│  │     "cpu_usage": 45.2,              │                                │
+│  │     "memory_total": 68719476736,    │                                │
+│  │     "disk_usage": 67.8,             │                                │
+│  │     "network_in_gb": 123.45,        │                                │
+│  │     "load_avg_1": 2.15,             │                                │
+│  │     ...                             │                                │
+│  │   }                                 │                                │
+│  └────────┬────────────────────────────┘                                │
+│           │                                                             │
+│           ▼                                                             │
+│  ┌─────────────────────────────────────┐                                │
+│  │    POST /api/agent                  │                                │
+│  │    Authorization: Bearer <token>    │                                │
+│  │    Content-Type: application/json   │                                │
+│  │                                     │                                │
+│  │    Body: SystemMetrics JSON         │                                │
+│  └────────┬────────────────────────────┘                                │
+│           │                                                             │
+│           ▼                                                             │
+│  ┌─────────────────────────────────────┐                                │
+│  │       NannyAPI Backend              │                                │
+│  │  ✓ Validates authentication token   │                                │
+│  │  ✓ Stores metrics in database       │                                │
+│  │  ✓ Triggers alerts if thresholds    │                                │
+│  │  ✓ Returns 200 OK                   │                                │
+│  └─────────────────────────────────────┘                                │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -895,46 +895,46 @@ Content-Type: application/json
 Every 5 minutes (if Proxmox VE detected):
 
 ┌────────────────────────────────────────────────────────────────────────────────────┐
-│                        PROXMOX INFRASTRUCTURE MONITORING                            │
+│                        PROXMOX INFRASTRUCTURE MONITORING                           │
 ├────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                    │
-│  ┌─────────────────┐                                                              │
-│  │ Proxmox Timer   │                                                              │
-│  │ (5min interval) │                                                              │
-│  └────────┬────────┘                                                              │
-│           │                                                                       │
-│           ▼                                                                       │
-│  ┌────────────────────────────────┐                                              │
-│  │ Detect Proxmox VE              │                                              │
-│  │ • Check /usr/bin/pveversion    │                                              │
-│  │ • Verify cluster membership    │                                              │
-│  └────────┬───────────────────────┘                                              │
-│           │                                                                       │
-│           ├──────────────────┬──────────────────┬──────────────────┐             │
-│           ▼                  ▼                  ▼                  ▼             │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐│
-│  │ Collect Node   │  │ Collect Cluster│  │ Collect LXC    │  │ Collect QEMU   ││
-│  │ Information    │  │ Information    │  │ Containers     │  │ VMs            ││
-│  │                │  │                │  │                │  │                ││
-│  │ pvesh get      │  │ pvesh get      │  │ For each LXC:  │  │ For each VM:   ││
-│  │ /nodes/{node}/ │  │ /cluster/      │  │ pvesh get      │  │ pvesh get      ││
-│  │ status         │  │ status         │  │ /nodes/{node}/ │  │ /nodes/{node}/ ││
-│  │                │  │                │  │ lxc/{id}/config│  │ qemu/{id}/     ││
-│  │                │  │                │  │                │  │ config         ││
-│  └────────┬───────┘  └────────┬───────┘  └────────┬───────┘  └────────┬───────┘│
-│           │                   │                   │                   │         │
-│           ▼                   ▼                   ▼                   ▼         │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐│
-│  │ POST /api/     │  │ POST /api/     │  │ POST /api/     │  │ POST /api/     ││
-│  │ proxmox/node   │  │ proxmox/cluster│  │ proxmox/lxc    │  │ proxmox/qemu   ││
-│  │                │  │                │  │                │  │                ││
-│  │ NodeInfo JSON  │  │ ClusterInfo    │  │ LXCInfo JSON   │  │ QemuInfo JSON  ││
-│  │ (status, IP,   │  │ (name, nodes,  │  │ (ID, status,   │  │ (ID, status,   ││
-│  │  version)      │  │  quorum)       │  │  CPU, memory,  │  │  disks, CPU,   ││
-│  │                │  │                │  │  networking)   │  │  networking)   ││
-│  └────────────────┘  └────────────────┘  └────────────────┘  └────────────────┘│
+│  ┌─────────────────┐                                                               │
+│  │ Proxmox Timer   │                                                               │
+│  │ (5min interval) │                                                               │
+│  └────────┬────────┘                                                               │
+│           │                                                                        │
+│           ▼                                                                        │
+│  ┌────────────────────────────────┐                                                │
+│  │ Detect Proxmox VE              │                                                │
+│  │ • Check /usr/bin/pveversion    │                                                │
+│  │ • Verify cluster membership    │                                                │
+│  └────────┬───────────────────────┘                                                │
+│           │                                                                        │
+│           ├──────────────────┬──────────────────┬──────────────────┐               │
+│           ▼                  ▼                  ▼                  ▼               │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐.   │
+│  │ Collect Node   │  │ Collect Cluster│  │ Collect LXC    │  │ Collect QEMU   │.   │
+│  │ Information    │  │ Information    │  │ Containers     │  │ VMs            │.   │
+│  │                │  │                │  │                │  │                │.   │
+│  │ pvesh get      │  │ pvesh get      │  │ For each LXC:  │  │ For each VM:   │.   │
+│  │ /nodes/{node}/ │  │ /cluster/      │  │ pvesh get      │  │ pvesh get      │.   │
+│  │ status         │  │ status         │  │ /nodes/{node}/ │  │ /nodes/{node}/ │.   │
+│  │                │  │                │  │ lxc/{id}/config│  │ qemu/{id}/     │.   │
+│  │                │  │                │  │                │  │ config         │.   │
+│  └────────┬───────┘  └────────┬───────┘  └────────┬───────┘  └────────┬───────┘.   │
+│           │                   │                   │                   │            │
+│           ▼                   ▼                   ▼                   ▼            │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐.   │
+│  │ POST /api/     │  │ POST /api/     │  │ POST /api/     │  │ POST /api/     │.   │
+│  │ proxmox/node   │  │ proxmox/cluster│  │ proxmox/lxc    │  │ proxmox/qemu   │.   │
+│  │                │  │                │  │                │  │                │.   │
+│  │ NodeInfo JSON  │  │ ClusterInfo    │  │ LXCInfo JSON   │  │ QemuInfo JSON  │.   │
+│  │ (status, IP,   │  │ (name, nodes,  │  │ (ID, status,   │  │ (ID, status,   │.   │
+│  │  version)      │  │  quorum)       │  │  CPU, memory,  │  │  disks, CPU,   │.   │
+│  │                │  │                │  │  networking)   │  │  networking)   │.   │
+│  └────────────────┘  └────────────────┘  └────────────────┘  └────────────────┘.   │
 │                                                                                    │
-│  All data sent to NannyAPI with Bearer token authentication                       │
+│  All data sent to NannyAPI with Bearer token authentication                        │
 │                                                                                    │
 └────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -945,7 +945,7 @@ Every 5 minutes (if Proxmox VE detected):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                              INVESTIGATION DIAGNOSTIC WORKFLOW                                   │
+│                              INVESTIGATION DIAGNOSTIC WORKFLOW                                  │
 ├─────────────────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                                 │
 │  Portal/CLI              Agent                      NannyAPI                 TensorZero AI      │
@@ -997,51 +997,51 @@ Every 5 minutes (if Proxmox VE detected):
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────────┐
-│                       SERVER-SENT EVENTS (SSE) FLOW                                │
+│                       SERVER-SENT EVENTS (SSE) FLOW                               │
 ├───────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                   │
 │  Agent                         NannyAPI (SSE)                     Portal          │
-│    │                                    │                              │             │
-│    │ 1. GET /api/realtime               │                              │             │
-│    │    (establish SSE connection)      │                              │             │
-│    ├───────────────────────────────────>│                              │             │
-│    │                                    │                              │             │
-│    │ 2. event: connect                  │                              │             │
-│    │    data: {"clientId": "abc123"}    │                              │             │
-│    │<───────────────────────────────────┤                              │             │
-│    │                                    │                              │             │
-│    │ 3. POST /api/realtime              │                              │             │
-│    │    {                               │                              │             │
-│    │      "clientId": "abc123",         │                              │             │
-│    │      "subscriptions": [            │                              │             │
-│    │        "investigations",           │                              │             │
-│    │        "patch_operations"          │                              │             │
-│    │      ]                             │                              │             │
-│    │    }                               │                              │             │
-│    ├───────────────────────────────────>│                              │             │
-│    │                                    │                              │             │
-│    │ 4. 204 No Content                  │                              │             │
-│    │<───────────────────────────────────┤                              │             │
-│    │                                    │                              │             │
-│    │ ═══ SSE Connection Active ═══      │                              │             │
-│    │                                    │                              │             │
-│    │                                    │ 5. User creates investigation│             │
-│    │                                    │      or patch operation      │             │
-│    │                                    │<─────────────────────────────┤             │
-│    │                                    │                              │             │
-│    │ 6. event: record                   │                              │             │
-│    │    data: {                         │                              │             │
-│    │      "action": "create",           │                              │             │
-│    │      "record": {                   │                              │             │
-│    │        "id": "inv-123",            │                              │             │
-│    │        "user_prompt": "Fix nginx"  │                              │             │
-│    │      }                             │                              │             │
-│    │    }                               │                              │             │
-│    │<───────────────────────────────────┤                              │             │
-│    │                                    │                              │             │
-│    │ 7. Process event                   │                              │             │
-│    │    (spawn goroutine)               │                              │             │
-│    │                                    │                              │             │
+│    │                                    │                              │          │
+│    │ 1. GET /api/realtime               │                              │          │
+│    │    (establish SSE connection)      │                              │          │
+│    ├───────────────────────────────────>│                              │          │
+│    │                                    │                              │          │
+│    │ 2. event: connect                  │                              │          │
+│    │    data: {"clientId": "abc123"}    │                              │          │
+│    │<───────────────────────────────────┤                              │          │
+│    │                                    │                              │          │
+│    │ 3. POST /api/realtime              │                              │          │
+│    │    {                               │                              │          │
+│    │      "clientId": "abc123",         │                              │          │
+│    │      "subscriptions": [            │                              │          │
+│    │        "investigations",           │                              │          │
+│    │        "patch_operations"          │                              │          │
+│    │      ]                             │                              │          │
+│    │    }                               │                              │          │
+│    ├───────────────────────────────────>│                              │          │
+│    │                                    │                              │          │
+│    │ 4. 204 No Content                  │                              │          │
+│    │<───────────────────────────────────┤                              │          │
+│    │                                    │                              │          │
+│    │ ═══ SSE Connection Active ═══      │                              │          │
+│    │                                    │                              │          │
+│    │                                    │ 5. User creates investigation│          │
+│    │                                    │      or patch operation      │          │
+│    │                                    │<─────────────────────────────┤          │
+│    │                                    │                              │          │
+│    │ 6. event: record                   │                              │          │
+│    │    data: {                         │                              │          │
+│    │      "action": "create",           │                              │          │
+│    │      "record": {                   │                              │          │
+│    │        "id": "inv-123",            │                              │          │
+│    │        "user_prompt": "Fix nginx"  │                              │          │
+│    │      }                             │                              │          │
+│    │    }                               │                              │          │
+│    │<───────────────────────────────────┤                              │          │
+│    │                                    │                              │          │
+│    │ 7. Process event                   │                              │          │
+│    │    (spawn goroutine)               │                              │          │
+│    │                                    │                              │          │
 │                                                                                   │
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```

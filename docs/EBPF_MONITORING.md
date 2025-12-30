@@ -51,7 +51,7 @@ $ uname -r
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     NannyAgent Process                           │
+│                     NannyAgent Process                          │
 │  ┌────────────────────────────────────────────────────────────┐ │
 │  │         eBPF Trace Manager (Go)                            │ │
 │  │  - Trace specification parsing                             │ │
@@ -74,14 +74,14 @@ $ uname -r
                            │ eBPF syscall
                            ▼
         ┌──────────────────────────────────────────┐
-        │         Linux Kernel                      │
+        │         Linux Kernel                     │
         │  ┌────────────────────────────────────┐  │
         │  │    eBPF Virtual Machine            │  │
         │  │  - Program verification            │  │
         │  │  - JIT compilation                 │  │
         │  │  - Safe execution                  │  │
         │  └───────────────┬────────────────────┘  │
-        │                  │                        │
+        │                  │                       │
         │  ┌───────────────┴────────────────────┐  │
         │  │   Kernel Instrumentation Points    │  │
         │  │  - Tracepoints                     │  │

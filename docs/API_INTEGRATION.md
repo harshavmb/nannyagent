@@ -81,7 +81,7 @@ NannyAgent implements the OAuth 2.0 Device Authorization Grant flow for secure, 
      │                             │   "success": true,         │
      │                             │   "message": "Authorized"  │
      │                             │ }                          │
-     │                             │────────────────────────────>│
+     │                             │───────────────────────────>│
      │                             │                            │
      │ Step 4: Register Agent      │                            │
      │ POST /api/auth              │                            │
