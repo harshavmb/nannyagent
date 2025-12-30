@@ -1,334 +1,602 @@
-# NannyAgent Installation Guide
+# Installation Guide
 
-## Quick Install
+<div align="center">
+  <img src="https://avatars.githubusercontent.com/u/110624612" alt="NannyAI" width="120"/>
+  <h1>NannyAgent Installation</h1>
+</div>
 
-### One-Line Install (Recommended)
+## Table of Contents
 
-After uploading `install.sh` to your website:
-
-```bash
-curl -fsSL https://your-domain.com/install.sh | sudo bash
-```
-
-Or with wget:
-
-```bash
-wget -qO- https://your-domain.com/install.sh | sudo bash
-```
-
-### Two-Step Install (More Secure)
-
-Download and inspect the installer first:
-
-```bash
-# Download the installer
-curl -fsSL https://your-domain.com/install.sh -o install.sh
-
-# Inspect the script (recommended!)
-less install.sh
-
-# Make it executable
-chmod +x install.sh
-
-# Run the installer
-sudo ./install.sh
-```
-
-## Installation from GitHub
-
-If you're hosting on GitHub:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/yourusername/nannyagent/main/install.sh | sudo bash
-```
+- [System Requirements](#system-requirements)
+- [Quick Install](#quick-install)
+- [Installation Methods](#installation-methods)
+- [Configuration](#configuration)
+- [Registration](#registration)
+- [Verification](#verification)
+- [Uninstallation](#uninstallation)
+- [Troubleshooting](#troubleshooting)
 
 ## System Requirements
 
-Before installing, ensure your system meets these requirements:
-
 ### Operating System
-- ✅ Linux (any distribution)
-- ❌ Windows (not supported)
-- ❌ macOS (not supported)
-- ❌ Containers/Docker (not supported)
-- ❌ LXC (not supported)
 
-### Architecture
-- ✅ amd64 (x86_64)
-- ✅ arm64 (aarch64)
-- ❌ i386/i686 (32-bit not supported)
-- ❌ Other architectures (not supported)
+**Supported Linux Distributions:**
+- Ubuntu 20.04, 22.04, 24.04
+- Debian 10, 11, 12
+- CentOS 7, 8
+- RHEL 7, 8, 9
+- Fedora 35+
+- Arch Linux
+- openSUSE / SUSE Linux Enterprise
+
+**Not Supported:**
+- Docker containers
+- LXC containers (agent can manage them, but cannot run inside them)
+- macOS, Windows, BSD
 
 ### Kernel Version
-- ✅ Linux kernel 5.x or higher
-- ❌ Linux kernel 4.x or lower (not supported)
+
+**Required:** Linux kernel 5.x or higher
 
 Check your kernel version:
 ```bash
 uname -r
-# Should show 5.x.x or higher
+# Example: 5.15.0-56-generic
 ```
 
-### Privileges
-- Must have root/sudo access
-- Will create system directories:
-  - `/usr/local/bin/nannyagent` (binary)
-  - `/etc/nannyagent` (configuration)
-  - `/var/lib/nannyagent` (data directory)
+If your kernel is older than 5.x, NannyAgent will not work due to eBPF requirements.
 
-### Network
-- Connectivity to Supabase backend required
-- HTTPS access to your Supabase project URL
-- No proxy support at this time
+### Architecture
 
-## What the Installer Does
+**Supported:**
+- `amd64` / `x86_64` (Intel/AMD 64-bit)
+- `arm64` / `aarch64` (ARM 64-bit)
 
-The installer performs these steps automatically:
+**Not Supported:**
+- `i386` / `i686` (32-bit)
+- `armv7` (ARM 32-bit)
 
-1. ✅ **System Checks**
-   - Verifies root privileges
-   - Detects OS and architecture
-   - Checks kernel version (5.x+)
-   - Detects container environments
-   - Checks for existing installations
+### Dependencies
 
-2. ✅ **Dependency Installation**
-   - Installs `bpftrace` (eBPF tracing tool)
-   - Installs `bpfcc-tools` (BCC toolkit)
-   - Installs kernel headers if needed
-   - Uses your system's package manager (apt/dnf/yum)
+**Automatically Installed:**
+- `bpftrace` - eBPF tracing tool (required for kernel monitoring)
+- `unzip` - Archive extraction utility
 
-3. ✅ **Build & Install**
-   - Verifies Go installation (required for building)
-   - Compiles the nannyagent binary
-   - Tests connectivity to Supabase
-   - Installs binary to `/usr/local/bin`
+**System Requirements:**
+- Root/sudo privileges (required for eBPF & OS updates)
+- Network connectivity to NannyAPI backend
+- ~50MB disk space for installation
+- ~10MB RAM for agent process
 
-4. ✅ **Configuration**
-   - Creates `/etc/nannyagent/config.env`
-   - Creates `/var/lib/nannyagent` data directory
-   - Sets proper permissions (secure)
-   - Creates installation lock file
+## Quick Install
 
-## Installation Exit Codes
-
-The installer exits with specific codes for different scenarios:
-
-| Exit Code | Meaning | Resolution |
-|-----------|---------|------------|
-| 0 | Success | Installation completed |
-| 1 | Not root | Run with `sudo` |
-| 2 | Unsupported OS | Use Linux |
-| 3 | Unsupported architecture | Use amd64 or arm64 |
-| 4 | Container detected | Install on bare metal or VM |
-| 5 | Kernel too old | Upgrade to kernel 5.x+ |
-| 6 | Existing installation | Remove `/var/lib/nannyagent` first |
-| 7 | eBPF tools failed | Check package manager and repos |
-| 8 | Go not installed | Install Go from golang.org |
-| 9 | Build failed | Check Go installation and dependencies |
-| 10 | Directory creation failed | Check permissions |
-| 11 | Binary installation failed | Check disk space and permissions |
-
-## Post-Installation
-
-After successful installation:
-
-### 1. Configure Supabase URL
-
-Edit the configuration file:
-```bash
-sudo nano /etc/nannyagent/config.env
-```
-
-Set your Supabase project URL:
-```bash
-SUPABASE_PROJECT_URL=https://your-project.supabase.co
-TOKEN_PATH=/var/lib/nannyagent/token.json
-DEBUG=false
-```
-
-### 2. Test the Installation
-
-Check version (no sudo needed):
-```bash
-nannyagent --version
-```
-
-Show help (no sudo needed):
-```bash
-nannyagent --help
-```
-
-### 3. Run the Agent
-
-Start the agent (requires sudo):
-```bash
-sudo nannyagent
-```
-
-On first run, you'll see authentication instructions:
-```
-Visit: https://your-app.com/device-auth
-Enter code: ABCD-1234
-```
-
-## Uninstallation
-
-To remove NannyAgent:
+### One-Line Install
 
 ```bash
-# Remove binary
-sudo rm /usr/local/bin/nannyagent
-
-# Remove configuration
-sudo rm -rf /etc/nannyagent
-
-# Remove data directory (includes authentication tokens)
-sudo rm -rf /var/lib/nannyagent
+curl -fsSL https://raw.githubusercontent.com/nannyagent/nannyagent/main/install.sh | sudo bash
 ```
 
-## Troubleshooting
-
-### "Kernel version X.X is not supported"
-
-Your kernel is too old. Check current version:
+Or with `wget`:
 ```bash
-uname -r
+wget -qO- https://raw.githubusercontent.com/nannyagent/nannyagent/main/install.sh | sudo bash
 ```
 
-Options:
-1. Upgrade your kernel to 5.x or higher
-2. Use a different system with a newer kernel
-3. Check your distribution's documentation for kernel upgrades
+This will:
+1. ✅ Check system requirements (kernel version, architecture)
+2. ✅ Install dependencies (bpftrace, unzip)
+3. ✅ Download latest pre-built binary
+4. ✅ Install to `/usr/sbin/nannyagent`
+5. ✅ Create configuration directory `/etc/nannyagent/`
+6. ✅ Install systemd service
+7. ✅ Create data directory `/var/lib/nannyagent/`
 
-### "Another instance may already be installed"
+## Installation Methods
 
-The installer detected an existing installation. Options:
+### Method 1: Pre-built Binary (Recommended)
 
-**Option 1:** Remove the existing installation
+**Install latest version:**
 ```bash
-sudo rm -rf /var/lib/nannyagent
+curl -fsSL https://raw.githubusercontent.com/nannyagent/nannyagent/main/install.sh | sudo bash
 ```
 
-**Option 2:** Check if it's actually running
+**Install specific version:**
 ```bash
-ps aux | grep nannyagent
+export INSTALL_VERSION=1.2.3
+curl -fsSL https://raw.githubusercontent.com/nannyagent/nannyagent/main/install.sh | sudo bash
 ```
 
-If running, stop it first, then remove the data directory.
+### Method 2: Build from Source
 
-### "Cannot connect to Supabase"
+**Prerequisites:**
+- Go 1.21 or higher
+- Git
 
-This is a warning, not an error. The installation will complete, but the agent won't work without connectivity.
+**Steps:**
 
-Check:
-1. Is SUPABASE_PROJECT_URL set correctly?
-   ```bash
-   cat /etc/nannyagent/config.env
-   ```
-
-2. Can you reach the URL?
-   ```bash
-   curl -I https://your-project.supabase.co
-   ```
-
-3. Check firewall rules:
-   ```bash
-   sudo iptables -L -n | grep -i drop
-   ```
-
-### "Go is not installed"
-
-The installer requires Go to build the binary. Install Go:
-
-**Ubuntu/Debian:**
+1. **Clone repository:**
 ```bash
-sudo apt update
-sudo apt install golang-go
-```
-
-**RHEL/CentOS/Fedora:**
-```bash
-sudo dnf install golang
-```
-
-Or download from: https://golang.org/dl/
-
-### "eBPF tools installation failed"
-
-Check your package repositories:
-
-**Ubuntu/Debian:**
-```bash
-sudo apt update
-sudo apt install bpfcc-tools bpftrace
-```
-
-**RHEL/Fedora:**
-```bash
-sudo dnf install bcc-tools bpftrace
-```
-
-## Security Considerations
-
-### Permissions
-
-The installer creates directories with restricted permissions:
-- `/etc/nannyagent` - 755 (readable by all, writable by root)
-- `/etc/nannyagent/config.env` - 600 (only root can read/write)
-- `/var/lib/nannyagent` - 700 (only root can access)
-
-### Authentication Tokens
-
-Authentication tokens are stored securely in:
-```
-/var/lib/nannyagent/token.json
-```
-
-Only root can access this file (permissions: 600).
-
-### Network Communication
-
-All communication with Supabase uses HTTPS (TLS encrypted).
-
-## Manual Installation (Alternative)
-
-If you prefer manual installation:
-
-```bash
-# 1. Clone repository
-git clone https://github.com/harshavmb/nannyagent.git
+git clone https://github.com/nannyagent/nannyagent.git
 cd nannyagent
+```
 
-# 2. Install eBPF tools (Ubuntu/Debian)
-sudo apt update
-sudo apt install bpfcc-tools bpftrace linux-headers-$(uname -r)
+2. **Install dependencies:**
+```bash
+make install
+```
 
-# 3. Build binary
-go mod tidy
-CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-w -s' -o nannyagent .
+3. **Build binary:**
+```bash
+make build
+```
 
-# 4. Install
-sudo cp nannyagent /usr/local/bin/
-sudo chmod 755 /usr/local/bin/nannyagent
+4. **Install system-wide:**
+```bash
+sudo make install-system
+```
 
-# 5. Create directories
+This will:
+- Copy binary to `/usr/sbin/nannyagent`
+- Create `/etc/nannyagent/config.yaml` with default settings
+- Install systemd service
+- Reload systemd daemon
+
+### Method 3: Using Install Script with Build Flag
+
+Force build from source even if pre-built binary exists:
+
+```bash
+export INSTALL_FROM_SOURCE=true
+curl -fsSL https://raw.githubusercontent.com/nannyagent/nannyagent/main/install.sh | sudo bash
+```
+
+### Method 4: Manual Installation
+
+**Download binary manually:**
+
+```bash
+# For amd64 (x86_64)
+wget https://github.com/nannyagent/nannyagent/releases/latest/download/nannyagent_linux_amd64.tar.gz
+tar -xzf nannyagent_linux_amd64.tar.gz
+
+# For arm64 (aarch64)
+wget https://github.com/nannyagent/nannyagent/releases/latest/download/nannyagent_linux_arm64.tar.gz
+tar -xzf nannyagent_linux_arm64.tar.gz
+
+# Install binary
+sudo mv nannyagent /usr/sbin/
+sudo chmod +x /usr/sbin/nannyagent
+
+# Create directories
 sudo mkdir -p /etc/nannyagent
 sudo mkdir -p /var/lib/nannyagent
 sudo chmod 700 /var/lib/nannyagent
 
-# 6. Create configuration
-sudo cat > /etc/nannyagent/config.env <<EOF
-SUPABASE_PROJECT_URL=https://your-project.supabase.co
-TOKEN_PATH=/var/lib/nannyagent/token.json
-DEBUG=false
-EOF
+# Install bpftrace
+sudo apt-get install bpftrace  # Ubuntu/Debian
+# sudo dnf install bpftrace     # Fedora/RHEL
+# sudo yum install bpftrace     # CentOS
 
-sudo chmod 600 /etc/nannyagent/config.env
+# Create config file (see Configuration section)
+sudo nano /etc/nannyagent/config.yaml
+
+# Download and install systemd service
+sudo wget -O /etc/systemd/system/nannyagent.service \
+  https://raw.githubusercontent.com/nannyagent/nannyagent/main/nannyagent.service
+sudo systemctl daemon-reload
 ```
 
-## Support
+## Configuration
 
-For issues or questions:
-- GitHub Issues: https://github.com/harshavmb/nannyagent/issues
-- Documentation: https://github.com/harshavmb/nannyagent/docs
+### Create Configuration File
+
+After installation, create `/etc/nannyagent/config.yaml`:
+
+```bash
+sudo tee /etc/nannyagent/config.yaml > /dev/null <<EOF
+# NannyAPI backend URL (required)
+nannyapi_url: https://api.nannyai.dev
+
+# Portal URL for device authorization
+portal_url: https://nannyai.dev
+
+# Token storage path
+token_path: /var/lib/nannyagent/token.json
+
+# Metrics collection interval (seconds)
+metrics_interval: 30
+
+# Proxmox data collection interval (seconds)
+proxmox_interval: 300
+
+# Debug logging
+debug: false
+EOF
+```
+
+**Secure permissions:**
+```bash
+sudo chmod 600 /etc/nannyagent/config.yaml
+sudo chown root:root /etc/nannyagent/config.yaml
+```
+
+### Environment Variables (Alternative)
+
+You can also use environment variables instead of or to override config file:
+
+```bash
+export NANNYAPI_URL=https://api.nannyai.dev
+export NANNYAI_PORTAL_URL=https://nannyai.dev
+export DEBUG=false
+```
+
+For more details, see [Configuration Guide](CONFIGURATION.md).
+
+## Registration
+
+### Register Agent with NannyAI
+
+```bash
+sudo nannyagent --register
+```
+
+**Output:**
+```
+NannyAgent - Device Registration
+
+Visit: https://nannyai.dev/device
+Enter code: ABCD1234
+
+Waiting for authorization...
+```
+
+**Steps:**
+1. Open https://nannyai.dev/device in your browser
+2. Log in with your NannyAI account
+3. Enter the code displayed (e.g., `ABCD1234`)
+4. Click "Authorize Device"
+5. Wait for confirmation
+
+**Success output:**
+```
+✓ Device authorized successfully!
+✓ Agent registered with ID: agent-550e8400-e29b-41d4-a716-446655440000
+✓ Token stored: /var/lib/nannyagent/token.json
+
+Agent is now ready to use!
+```
+
+## Verification
+
+### Check Agent Status
+
+```bash
+nannyagent --status
+```
+
+**Expected output:**
+```
+NannyAgent Status
+
+✓ Agent ID: agent-550e8400-e29b-41d4-a716-446655440000
+✓ Registered: Yes
+✓ Token Valid: Yes
+✓ API Connectivity: OK
+✓ eBPF Supported: Yes
+✓ bpftrace: /usr/bin/bpftrace (v0.19.0)
+
+System Information:
+  Hostname: prod-web-01
+  Platform: ubuntu 22.04
+  Kernel: 5.15.0-56-generic
+  Architecture: x86_64
+  CPU Cores: 16
+  Memory: 64GB
+```
+
+### Test Diagnostic Capabilities
+
+```bash
+sudo nannyagent --diagnose "test connection to database"
+```
+
+### Start Systemd Service
+
+```bash
+# Enable service to start on boot
+sudo systemctl enable nannyagent
+
+# Start service
+sudo systemctl start nannyagent
+
+# Check service status
+sudo systemctl status nannyagent
+```
+
+**Expected output:**
+```
+● nannyagent.service - NannyAgent - AI-Powered Linux Diagnostic Agent
+     Loaded: loaded (/etc/systemd/system/nannyagent.service; enabled; vendor preset: enabled)
+     Active: active (running) since Mon 2025-12-30 10:30:00 UTC; 5min ago
+   Main PID: 12345 (nannyagent)
+      Tasks: 12 (limit: 38400)
+     Memory: 42.3M
+        CPU: 2.456s
+     CGroup: /system.slice/nannyagent.service
+             └─12345 /usr/sbin/nannyagent --daemon
+
+Dec 30 10:30:00 prod-web-01 systemd[1]: Started NannyAgent.
+Dec 30 10:30:00 prod-web-01 nannyagent[12345]: INFO: Agent started in daemon mode
+Dec 30 10:30:00 prod-web-01 nannyagent[12345]: INFO: Connected to NannyAPI
+```
+
+### View Logs
+
+```bash
+# Follow logs in real-time
+sudo journalctl -u nannyagent -f
+
+# View last 100 lines
+sudo journalctl -u nannyagent -n 100
+
+# View logs from today
+sudo journalctl -u nannyagent --since today
+```
+
+## Uninstallation
+
+### Stop and Disable Service
+
+```bash
+sudo systemctl stop nannyagent
+sudo systemctl disable nannyagent
+```
+
+### Remove Files
+
+```bash
+# Remove binary
+sudo rm -f /usr/sbin/nannyagent
+
+# Remove systemd service
+sudo rm -f /etc/systemd/system/nannyagent.service
+sudo systemctl daemon-reload
+
+# Remove configuration (optional - preserves agent registration)
+sudo rm -rf /etc/nannyagent
+
+# Remove data directory (WARNING: removes token and registration)
+sudo rm -rf /var/lib/nannyagent
+
+# Remove dependencies (optional)
+sudo apt-get remove bpftrace  # Ubuntu/Debian
+# sudo dnf remove bpftrace     # Fedora/RHEL
+# sudo yum remove bpftrace     # CentOS
+```
+
+## Troubleshooting
+
+### Installation Issues
+
+#### "This installer must be run as root"
+
+**Solution:**
+```bash
+# Use sudo
+sudo bash install.sh
+```
+
+#### "Unsupported operating system"
+
+**Cause:** Not running on Linux
+
+**Solution:** NannyAgent only supports Linux. Use a Linux VM or WSL2 if on Windows/macOS.
+
+#### "Unsupported architecture"
+
+**Cause:** Running on 32-bit or unsupported architecture
+
+**Solution:** Use a 64-bit system (amd64 or arm64).
+
+#### "Container environment detected"
+
+**Cause:** Trying to install inside Docker or LXC
+
+**Solution:** Install on the host system, not inside containers.
+
+#### "Kernel version X.X is not supported"
+
+**Cause:** Kernel older than 5.x
+
+**Solution:** Upgrade kernel to 5.x or higher:
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install linux-generic-hwe-$(lsb_release -rs)
+sudo reboot
+```
+
+#### "Failed to install eBPF tools"
+
+**Cause:** Package manager issues or network problems
+
+**Solution:**
+```bash
+# Update package lists
+sudo apt-get update  # Ubuntu/Debian
+sudo dnf update      # Fedora/RHEL
+
+# Manually install bpftrace
+sudo apt-get install bpftrace  # Ubuntu/Debian
+sudo dnf install bpftrace      # Fedora/RHEL
+sudo yum install bpftrace      # CentOS
+```
+
+#### "Failed to download binary"
+
+**Cause:** Network connectivity or GitHub API rate limit
+
+**Solution:**
+```bash
+# Try building from source instead
+export INSTALL_FROM_SOURCE=true
+bash install.sh
+
+# Or manually download from releases page
+wget https://github.com/nannyagent/nannyagent/releases/latest/download/nannyagent_linux_amd64.tar.gz
+```
+
+### Configuration Issues
+
+#### "missing required configuration: NANNYAPI_URL must be set"
+
+**Solution:**
+```bash
+# Create config file
+sudo mkdir -p /etc/nannyagent
+sudo tee /etc/nannyagent/config.yaml > /dev/null <<EOF
+nannyapi_url: https://api.nannyai.dev
+EOF
+sudo chmod 600 /etc/nannyagent/config.yaml
+```
+
+#### "Permission denied" when reading config
+
+**Solution:**
+```bash
+# Fix permissions
+sudo chmod 600 /etc/nannyagent/config.yaml
+sudo chown root:root /etc/nannyagent/config.yaml
+
+# Run with sudo
+sudo nannyagent --status
+```
+
+### Registration Issues
+
+#### "Failed to connect to portal"
+
+**Cause:** Network connectivity or firewall blocking HTTPS
+
+**Solution:**
+```bash
+# Test connectivity
+curl -I https://api.nannyai.dev
+curl -I https://nannyai.dev
+
+# Check firewall
+sudo ufw status  # Ubuntu/Debian
+sudo firewall-cmd --list-all  # RHEL/CentOS
+```
+
+#### "Device code expired"
+
+**Cause:** Waited too long to authorize (codes expire after 10 minutes)
+
+**Solution:** Run `--register` again to get a new code.
+
+### Runtime Issues
+
+#### "This program must be run as root"
+
+**Cause:** eBPF requires root privileges
+
+**Solution:**
+```bash
+sudo nannyagent --status
+sudo nannyagent --diagnose "issue description"
+```
+
+#### Service fails to start
+
+**Check logs:**
+```bash
+sudo journalctl -u nannyagent -n 50
+```
+
+**Common causes:**
+- Missing configuration file
+- Invalid YAML syntax
+- Token file corrupted
+- Network connectivity issues
+
+**Solution:**
+```bash
+# Verify config
+cat /etc/nannyagent/config.yaml
+
+# Test manually
+sudo nannyagent --status
+
+# Re-register if needed
+sudo nannyagent --register
+```
+
+#### "bpftrace: command not found"
+
+**Solution:**
+```bash
+# Install bpftrace
+sudo apt-get install bpftrace  # Ubuntu/Debian
+sudo dnf install bpftrace      # Fedora/RHEL
+sudo yum install bpftrace      # CentOS
+
+# Verify installation
+which bpftrace
+bpftrace --version
+```
+
+### Getting Help
+
+If you continue to experience issues:
+
+1. **Check logs:**
+   ```bash
+   sudo journalctl -u nannyagent -n 100
+   ```
+
+2. **Run with debug mode:**
+   ```bash
+   sudo DEBUG=true nannyagent --status
+   ```
+
+3. **Verify system requirements:**
+   ```bash
+   uname -r  # Kernel version (must be 5.x+)
+   uname -m  # Architecture (must be x86_64 or aarch64)
+   which bpftrace  # bpftrace installed
+   ```
+
+4. **Contact support:**
+   - Email: support@nannyai.dev
+   - GitHub Issues: https://github.com/nannyagent/nannyagent/issues
+
+---
+
+## Post-Installation
+
+Once installed and registered, you can:
+
+1. **Use daemon mode** (runs in background):
+   ```bash
+   sudo systemctl start nannyagent
+   ```
+
+2. **Run one-off diagnostics**:
+   ```bash
+   sudo nannyagent --diagnose "nginx is slow"
+   ```
+
+3. **Check status**:
+   ```bash
+   nannyagent --status
+   ```
+
+4. **View documentation**:
+   - [Configuration Guide](CONFIGURATION.md)
+   - [Architecture Documentation](ARCHITECTURE.md)
+   - [eBPF Monitoring Guide](EBPF_MONITORING.md)
+   - [API Integration](API_INTEGRATION.md)
+
+---
+
+**Congratulations! NannyAgent is now installed and ready to use.** 🎉
