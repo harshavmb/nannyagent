@@ -894,49 +894,49 @@ Content-Type: application/json
 ```
 Every 5 minutes (if Proxmox VE detected):
 
-┌────────────────────────────────────────────────────────────────────────────────┐
-│                        PROXMOX INFRASTRUCTURE MONITORING                        │
-├────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                │
-│  ┌─────────────────┐                                                          │
-│  │ Proxmox Timer   │                                                          │
-│  │ (5min interval) │                                                          │
-│  └────────┬────────┘                                                          │
-│           │                                                                   │
-│           ▼                                                                   │
-│  ┌────────────────────────────┐                                              │
-│  │ Detect Proxmox VE          │                                              │
-│  │ • Check /usr/bin/pveversion│                                              │
-│  │ • Verify cluster membership│                                              │
-│  └────────┬───────────────────┘                                              │
-│           │                                                                   │
-│           ├──────────────────┬──────────────────┬──────────────────┐         │
-│           ▼                  ▼                  ▼                  ▼         │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────┐│
-│  │ Collect Node   │  │ Collect Cluster│  │ Collect LXC    │  │Collect QEMU││
-│  │ Information    │  │ Information    │  │ Containers     │  │ VMs        ││
-│  │                │  │                │  │                │  │            ││
-│  │ pvesh get      │  │ pvesh get      │  │ For each LXC:  │  │For each VM:││
-│  │ /nodes/{node}/ │  │ /cluster/      │  │ pvesh get      │  │pvesh get   ││
-│  │ status         │  │ status         │  │ /nodes/{node}/ │  │/nodes/     ││
-│  │                │  │                │  │ lxc/{id}/config│  │{node}/qemu/││
-│  │                │  │                │  │                │  │{id}/config ││
-│  └────────┬───────┘  └────────┬───────┘  └────────┬───────┘  └─────┬──────┘│
-│           │                   │                   │                 │       │
-│           ▼                   ▼                   ▼                 ▼       │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────┐│
-│  │ POST /api/     │  │ POST /api/     │  │ POST /api/     │  │POST /api/  ││
-│  │ proxmox/node   │  │ proxmox/cluster│  │ proxmox/lxc    │  │proxmox/qemu││
-│  │                │  │                │  │                │  │            ││
-│  │ NodeInfo JSON  │  │ ClusterInfo    │  │ LXCInfo JSON   │  │QemuInfo    ││
-│  │ (status, IP,   │  │ (name, nodes,  │  │ (ID, status,   │  │(ID, status,││
-│  │  version)      │  │  quorum)       │  │  CPU, memory,  │  │ disks, CPU,││
-│  │                │  │                │  │  networking)   │  │ networking)││
-│  └────────────────┘  └────────────────┘  └────────────────┘  └────────────┘│
-│                                                                                │
-│  All data sent to NannyAPI with Bearer token authentication                   │
-│                                                                                │
-└────────────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│                        PROXMOX INFRASTRUCTURE MONITORING                            │
+├────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                    │
+│  ┌─────────────────┐                                                              │
+│  │ Proxmox Timer   │                                                              │
+│  │ (5min interval) │                                                              │
+│  └────────┬────────┘                                                              │
+│           │                                                                       │
+│           ▼                                                                       │
+│  ┌────────────────────────────────┐                                              │
+│  │ Detect Proxmox VE              │                                              │
+│  │ • Check /usr/bin/pveversion    │                                              │
+│  │ • Verify cluster membership    │                                              │
+│  └────────┬───────────────────────┘                                              │
+│           │                                                                       │
+│           ├──────────────────┬──────────────────┬──────────────────┐             │
+│           ▼                  ▼                  ▼                  ▼             │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐│
+│  │ Collect Node   │  │ Collect Cluster│  │ Collect LXC    │  │ Collect QEMU   ││
+│  │ Information    │  │ Information    │  │ Containers     │  │ VMs            ││
+│  │                │  │                │  │                │  │                ││
+│  │ pvesh get      │  │ pvesh get      │  │ For each LXC:  │  │ For each VM:   ││
+│  │ /nodes/{node}/ │  │ /cluster/      │  │ pvesh get      │  │ pvesh get      ││
+│  │ status         │  │ status         │  │ /nodes/{node}/ │  │ /nodes/{node}/ ││
+│  │                │  │                │  │ lxc/{id}/config│  │ qemu/{id}/     ││
+│  │                │  │                │  │                │  │ config         ││
+│  └────────┬───────┘  └────────┬───────┘  └────────┬───────┘  └────────┬───────┘│
+│           │                   │                   │                   │         │
+│           ▼                   ▼                   ▼                   ▼         │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐│
+│  │ POST /api/     │  │ POST /api/     │  │ POST /api/     │  │ POST /api/     ││
+│  │ proxmox/node   │  │ proxmox/cluster│  │ proxmox/lxc    │  │ proxmox/qemu   ││
+│  │                │  │                │  │                │  │                ││
+│  │ NodeInfo JSON  │  │ ClusterInfo    │  │ LXCInfo JSON   │  │ QemuInfo JSON  ││
+│  │ (status, IP,   │  │ (name, nodes,  │  │ (ID, status,   │  │ (ID, status,   ││
+│  │  version)      │  │  quorum)       │  │  CPU, memory,  │  │  disks, CPU,   ││
+│  │                │  │                │  │  networking)   │  │  networking)   ││
+│  └────────────────┘  └────────────────┘  └────────────────┘  └────────────────┘│
+│                                                                                    │
+│  All data sent to NannyAPI with Bearer token authentication                       │
+│                                                                                    │
+└────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Component Interactions
@@ -944,53 +944,53 @@ Every 5 minutes (if Proxmox VE detected):
 ### Investigation Lifecycle
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────────┐
-│                           INVESTIGATION DIAGNOSTIC WORKFLOW                                 │
-├────────────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                            │
-│  Portal/CLI              Agent                   NannyAPI              TensorZero AI      │
-│      │                     │                         │                       │            │
-│      │ 1. Create           │                         │                       │            │
-│      │    Investigation    │                         │                       │            │
-│      ├────────────────────>│                         │                       │            │
-│      │                     │                         │                       │            │
-│      │                     │ 2. POST /api/           │                       │            │
-│      │                     │    investigations       │                       │            │
-│      │                     │    (create record)      │                       │            │
-│      │                     ├────────────────────────>│                       │            │
-│      │                     │ 3. investigation_id     │                       │            │
-│      │                     │<────────────────────────┤                       │            │
-│      │                     │                         │                       │            │
-│      │                     │ 4. POST /api/           │                       │            │
-│      │                     │    investigations       │                       │            │
-│      │                     │    (TensorZero req)     │                       │            │
-│      │                     ├────────────────────────>│ 5. Forward request    │            │
-│      │                     │                         ├──────────────────────>│            │
-│      │                     │                         │ 6. AI diagnostic      │            │
-│      │                     │                         │    response           │            │
-│      │                     │ 7. Diagnostic commands  │<──────────────────────┤            │
-│      │                     │<────────────────────────┤                       │            │
-│      │                     │                         │                       │            │
-│      │                     │ 8. Execute:             │                       │            │
-│      │                     │    • Diagnostic cmds    │                       │            │
-│      │                     │    • eBPF traces        │                       │            │
-│      │                     │                         │                       │            │
-│      │                     │ 9. POST /api/           │                       │            │
-│      │                     │    investigations       │                       │            │
-│      │                     │    (with results)       │                       │            │
-│      │                     ├────────────────────────>│ 10. Forward results   │            │
-│      │                     │                         ├──────────────────────>│            │
-│      │                     │                         │ 11. AI resolution     │            │
-│      │                     │                         │     (root cause +     │            │
-│      │                     │                         │      fix plan)        │            │
-│      │                     │ 12. Final resolution    │<──────────────────────┤            │
-│      │                     │<────────────────────────┤                       │            │
-│      │ 13. Display         │                         │                       │            │
-│      │     resolution      │                         │                       │            │
-│      │<────────────────────┤                         │                       │            │
-│      │                     │                         │                       │            │
-│                                                                                            │
-└────────────────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                              INVESTIGATION DIAGNOSTIC WORKFLOW                                   │
+├─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                 │
+│  Portal/CLI              Agent                      NannyAPI                 TensorZero AI      │
+│      │                     │                            │                          │            │
+│      │ 1. Create           │                            │                          │            │
+│      │    Investigation    │                            │                          │            │
+│      ├────────────────────>│                            │                          │            │
+│      │                     │                            │                          │            │
+│      │                     │ 2. POST /api/              │                          │            │
+│      │                     │    investigations          │                          │            │
+│      │                     │    (create record)         │                          │            │
+│      │                     ├───────────────────────────>│                          │            │
+│      │                     │ 3. investigation_id        │                          │            │
+│      │                     │<───────────────────────────┤                          │            │
+│      │                     │                            │                          │            │
+│      │                     │ 4. POST /api/              │                          │            │
+│      │                     │    investigations          │                          │            │
+│      │                     │    (TensorZero req)        │                          │            │
+│      │                     ├───────────────────────────>│ 5. Forward request       │            │
+│      │                     │                            ├─────────────────────────>│            │
+│      │                     │                            │ 6. AI diagnostic         │            │
+│      │                     │                            │    response              │            │
+│      │                     │ 7. Diagnostic commands     │<─────────────────────────┤            │
+│      │                     │<───────────────────────────┤                          │            │
+│      │                     │                            │                          │            │
+│      │                     │ 8. Execute:                │                          │            │
+│      │                     │    • Diagnostic cmds       │                          │            │
+│      │                     │    • eBPF traces           │                          │            │
+│      │                     │                            │                          │            │
+│      │                     │ 9. POST /api/              │                          │            │
+│      │                     │    investigations          │                          │            │
+│      │                     │    (with results)          │                          │            │
+│      │                     ├───────────────────────────>│ 10. Forward results      │            │
+│      │                     │                            ├─────────────────────────>│            │
+│      │                     │                            │ 11. AI resolution        │            │
+│      │                     │                            │     (root cause +        │            │
+│      │                     │                            │      fix plan)           │            │
+│      │                     │ 12. Final resolution       │<─────────────────────────┤            │
+│      │                     │<───────────────────────────┤                          │            │
+│      │ 13. Display         │                            │                          │            │
+│      │     resolution      │                            │                          │            │
+│      │<────────────────────┤                            │                          │            │
+│      │                     │                            │                          │            │
+│                                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Realtime Event Processing
