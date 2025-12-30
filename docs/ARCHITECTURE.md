@@ -115,31 +115,31 @@ Implements OAuth 2.0 Device Flow for secure agent registration.
 
 **Flow:**
 ```
-┌──────────┐                  ┌──────────┐                 ┌──────────┐
-│  Agent   │                  │ NannyAPI │                 │  Portal  │
-└────┬─────┘                  └────┬─────┘                 └────┬─────┘
-     │                             │                            │
-     │ 1. Request device code      │                            │
-     ├────────────────────────────>│                            │
-     │ 2. device_code + user_code  │                            │
-     │<────────────────────────────┤                            │
-     │                             │                            │
-     │ 3. Display user_code to user                             │
-     │                             │                            │
-     │                             │ 4. User visits portal      │
-     │                             │    & enters user_code      │
-     │                             │<───────────────────────────┤
-     │                             │ 5. Authorize device        │
-     │                             │────────────────────────────>│
-     │                             │                            │
-     │ 6. Poll for token           │                            │
-     ├────────────────────────────>│                            │
-     │ 7. access_token +           │                            │
-     │    refresh_token + agent_id │                            │
-     │<────────────────────────────┤                            │
-     │                             │                            │
-     │ 8. Store token              │                            │
-     │                             │                            │
+┌────────────┐                ┌────────────┐                ┌────────────┐
+│   Agent    │                │  NannyAPI  │                │   Portal   │
+└──────┬─────┘                └──────┬─────┘                └──────┬─────┘
+       │                             │                             │
+       │ 1. Request device code      │                             │
+       ├────────────────────────────>│                             │
+       │ 2. device_code + user_code  │                             │
+       │<────────────────────────────┤                             │
+       │                             │                             │
+       │ 3. Display user_code        │                             │
+       │                             │                             │
+       │                             │ 4. User visits portal       │
+       │                             │    & enters user_code       │
+       │                             │<────────────────────────────┤
+       │                             │ 5. Authorize device         │
+       │                             │─────────────────────────────>│
+       │                             │                             │
+       │ 6. Poll for token           │                             │
+       ├────────────────────────────>│                             │
+       │ 7. access_token +           │                             │
+       │    refresh_token + agent_id │                             │
+       │<────────────────────────────┤                             │
+       │                             │                             │
+       │ 8. Store token              │                             │
+       │                             │                             │
 ```
 
 ### 3. Configuration Manager
@@ -1000,48 +1000,48 @@ Every 5 minutes (if Proxmox VE detected):
 │                       SERVER-SENT EVENTS (SSE) FLOW                                │
 ├───────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                   │
-│  Agent                         NannyAPI (SSE)                    Portal           │
-│    │                                 │                              │             │
-│    │ 1. GET /api/realtime            │                              │             │
-│    │    (establish SSE connection)   │                              │             │
-│    ├────────────────────────────────>│                              │             │
-│    │                                 │                              │             │
-│    │ 2. event: connect               │                              │             │
-│    │    data: {"clientId": "abc123"}  │                              │             │
-│    │<────────────────────────────────┤                              │             │
-│    │                                 │                              │             │
-│    │ 3. POST /api/realtime           │                              │             │
-│    │    {                            │                              │             │
-│    │      "clientId": "abc123",       │                              │             │
-│    │      "subscriptions": [          │                              │             │
-│    │        "investigations",         │                              │             │
-│    │        "patch_operations"        │                              │             │
-│    │      ]                          │                              │             │
-│    │    }                            │                              │             │
-│    ├────────────────────────────────>│                              │             │
-│    │                                 │                              │             │
-│    │ 4. 204 No Content               │                              │             │
-│    │<────────────────────────────────┤                              │             │
-│    │                                 │                              │             │
-│    │ ═══ SSE Connection Active ═══   │                              │             │
-│    │                                 │                              │             │
-│    │                                 │ 5. User creates investigation│             │
-│    │                                 │      or patch operation      │             │
-│    │                                 │<─────────────────────────────┤             │
-│    │                                 │                              │             │
-│    │ 6. event: record                │                              │             │
-│    │    data: {                      │                              │             │
-│    │      "action": "create",         │                              │             │
-│    │      "record": {                 │                              │             │
-│    │        "id": "inv-123",          │                              │             │
-│    │        "user_prompt": "Fix nginx"│                              │             │
-│    │      }                          │                              │             │
-│    │    }                            │                              │             │
-│    │<────────────────────────────────┤                              │             │
-│    │                                 │                              │             │
-│    │ 7. Process event                │                              │             │
-│    │    (spawn goroutine)            │                              │             │
-│    │                                 │                              │             │
+│  Agent                         NannyAPI (SSE)                     Portal          │
+│    │                                    │                              │             │
+│    │ 1. GET /api/realtime               │                              │             │
+│    │    (establish SSE connection)      │                              │             │
+│    ├───────────────────────────────────>│                              │             │
+│    │                                    │                              │             │
+│    │ 2. event: connect                  │                              │             │
+│    │    data: {"clientId": "abc123"}    │                              │             │
+│    │<───────────────────────────────────┤                              │             │
+│    │                                    │                              │             │
+│    │ 3. POST /api/realtime              │                              │             │
+│    │    {                               │                              │             │
+│    │      "clientId": "abc123",         │                              │             │
+│    │      "subscriptions": [            │                              │             │
+│    │        "investigations",           │                              │             │
+│    │        "patch_operations"          │                              │             │
+│    │      ]                             │                              │             │
+│    │    }                               │                              │             │
+│    ├───────────────────────────────────>│                              │             │
+│    │                                    │                              │             │
+│    │ 4. 204 No Content                  │                              │             │
+│    │<───────────────────────────────────┤                              │             │
+│    │                                    │                              │             │
+│    │ ═══ SSE Connection Active ═══      │                              │             │
+│    │                                    │                              │             │
+│    │                                    │ 5. User creates investigation│             │
+│    │                                    │      or patch operation      │             │
+│    │                                    │<─────────────────────────────┤             │
+│    │                                    │                              │             │
+│    │ 6. event: record                   │                              │             │
+│    │    data: {                         │                              │             │
+│    │      "action": "create",           │                              │             │
+│    │      "record": {                   │                              │             │
+│    │        "id": "inv-123",            │                              │             │
+│    │        "user_prompt": "Fix nginx"  │                              │             │
+│    │      }                             │                              │             │
+│    │    }                               │                              │             │
+│    │<───────────────────────────────────┤                              │             │
+│    │                                    │                              │             │
+│    │ 7. Process event                   │                              │             │
+│    │    (spawn goroutine)               │                              │             │
+│    │                                    │                              │             │
 │                                                                                   │
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
