@@ -91,7 +91,7 @@ NannyAgent is a sophisticated Linux diagnostic agent built in Go that combines A
 
 ## Core Components
 
-### 1. Agent Core (`main.go`)
+### 1. Agent Core
 
 The entry point and orchestrator of the entire agent.
 
@@ -102,16 +102,7 @@ The entry point and orchestrator of the entire agent.
 - Component initialization and lifecycle management
 - Interactive mode for diagnostics
 
-**Key Functions:**
-```go
-func main()
-func checkRootPrivileges()
-func checkKernelVersionCompatibility()
-func checkEBPFSupport()
-func testAPIConnectivity()
-```
-
-### 2. Authentication Manager (`internal/auth/auth.go`)
+### 2. Authentication Manager
 
 Implements OAuth 2.0 Device Flow for secure agent registration.
 
@@ -151,7 +142,7 @@ Implements OAuth 2.0 Device Flow for secure agent registration.
      │                             │                            │
 ```
 
-### 3. Configuration Manager (`internal/config/config.go`)
+### 3. Configuration Manager
 
 Centralized configuration management with environment variable overrides.
 
@@ -169,7 +160,7 @@ Centralized configuration management with environment variable overrides.
 - `METRICS_INTERVAL`: Metrics collection interval (default: 30s)
 - `PROXMOX_INTERVAL`: Proxmox data collection interval (default: 300s)
 
-### 4. Diagnostic Agent (`internal/agent/agent.go`)
+### 4. Diagnostic Agent
 
 The brain of the diagnostic system that orchestrates AI-powered issue resolution.
 
@@ -278,7 +269,7 @@ The brain of the diagnostic system that orchestrates AI-powered issue resolution
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-### 5. eBPF Trace Manager (`internal/ebpf/ebpf_trace_manager.go`)
+### 5. eBPF Trace Manager
 
 Manages kernel-level tracing using **bpftrace exclusively** for deep system monitoring. bpftrace is a generic BPF scripting language that provides flexible kernel instrumentation capabilities.
 
@@ -330,7 +321,7 @@ END {
 }
 ```
 
-### 6. Command Executor (`internal/executor/executor.go`)
+### 6. Command Executor
 
 Safely executes diagnostic commands with timeouts and security validation.
 
@@ -341,7 +332,7 @@ Safely executes diagnostic commands with timeouts and security validation.
 - Safe command construction
 - No shell injection vulnerabilities
 
-### 7. Investigations Client (`internal/investigations/investigations_client.go`)
+### 7. Investigations Client
 
 Handles all investigation-related API operations.
 
@@ -366,7 +357,7 @@ Handles all investigation-related API operations.
 
 The `investigation_id` field is critical - it tells NannyAPI which investigation this diagnostic session belongs to, enabling proper tracking and routing.
 
-### 8. Realtime Client (`internal/realtime/client.go`)
+### 8. Realtime Client
 
 Maintains persistent SSE (Server-Sent Events) connection for real-time communication.
 
@@ -442,7 +433,7 @@ Maintains persistent SSE (Server-Sent Events) connection for real-time communica
 }
 ```
 
-### 9. Metrics Collector (`internal/metrics/collector.go`)
+### 9. Metrics Collector
 
 Collects comprehensive system metrics using gopsutil library.
 
@@ -481,7 +472,7 @@ Authorization: Bearer <access_token>
 
 **Collection Schedule:** Every 30 seconds (configurable via `METRICS_INTERVAL`)
 
-### 10. Proxmox Manager (`internal/proxmox/manager.go`)
+### 10. Proxmox Manager
 
 Collects Proxmox VE infrastructure data for monitoring and management.
 
@@ -566,7 +557,7 @@ pvesh get /nodes/{node}/qemu/{vmid}/config --output-format json
 }
 ```
 
-### 11. Patch Manager (`internal/patches/patch_manager.go`)
+### 11. Patch Manager
 
 Executes patch scripts for system remediation with security validation.
 
