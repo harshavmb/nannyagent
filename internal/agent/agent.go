@@ -112,7 +112,7 @@ func (a *LinuxDiagnosticAgent) CreateInvestigation(issue string) (string, error)
 
 	if authMgr, ok := a.authManager.(interface {
 		GetCurrentAgentID() (string, error)
-		LoadToken() (*types.AuthToken, error)
+		EnsureAuthenticated() (*types.AuthToken, error)
 	}); ok {
 		var err error
 		agentID, err = authMgr.GetCurrentAgentID()
@@ -120,7 +120,7 @@ func (a *LinuxDiagnosticAgent) CreateInvestigation(issue string) (string, error)
 			return "", fmt.Errorf("failed to get agent ID: %w", err)
 		}
 
-		token, err := authMgr.LoadToken()
+		token, err := authMgr.EnsureAuthenticated()
 		if err != nil {
 			return "", fmt.Errorf("failed to load token: %w", err)
 		}
@@ -195,24 +195,24 @@ func (a *LinuxDiagnosticAgent) diagnoseIssueInternal(issue string) error {
 		nannyAPIURL = os.Getenv("NANNYAPI_URL")
 	}
 
-	// Get Access Token
-	var accessToken string
-	if authMgr, ok := a.authManager.(interface {
-		LoadToken() (*types.AuthToken, error)
-	}); ok {
-		token, err := authMgr.LoadToken()
-		if err != nil {
-			return fmt.Errorf("failed to load token: %w", err)
-		}
-		accessToken = token.AccessToken
-	} else {
-		return fmt.Errorf("auth manager does not support required interfaces")
-	}
-
 	// Initialize investigations client
 	client := investigations.NewInvestigationsClient(nannyAPIURL)
 
 	for {
+		// Get Access Token (refresh if needed)
+		var accessToken string
+		if authMgr, ok := a.authManager.(interface {
+			EnsureAuthenticated() (*types.AuthToken, error)
+		}); ok {
+			token, err := authMgr.EnsureAuthenticated()
+			if err != nil {
+				return fmt.Errorf("failed to load token: %w", err)
+			}
+			accessToken = token.AccessToken
+		} else {
+			return fmt.Errorf("auth manager does not support required interfaces")
+		}
+
 		// Send request to TensorZero API via Investigations Client
 		content, err := client.SendDiagnosticMessage(accessToken, a.model, messages, a.investigationID)
 		if err != nil {
