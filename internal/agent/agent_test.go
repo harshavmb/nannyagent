@@ -18,6 +18,10 @@ func (m *MockAuthManager) LoadToken() (*types.AuthToken, error) {
 	return m.Token, nil
 }
 
+func (m *MockAuthManager) EnsureAuthenticated() (*types.AuthToken, error) {
+	return m.Token, nil
+}
+
 func TestNewLinuxDiagnosticAgent(t *testing.T) {
 	agent := NewLinuxDiagnosticAgent()
 	if agent == nil {
