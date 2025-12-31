@@ -50,7 +50,7 @@ changelog:
 
 release:
   github:
-    owner: harshavmb
+    owner: nannyagent
     name: nannyagent
   draft: false
   prerelease: auto
@@ -60,10 +60,10 @@ release:
     
     Install with:
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/harshavmb/nannyagent/main/install.sh | sudo bash
+    curl -fsSL https://raw.githubusercontent.com/nannyagent/nannyagent/main/install.sh | sudo bash
     ```
   footer: |
-    **Full Changelog**: https://github.com/harshavmb/nannyagent/compare/{{.PreviousTag}}...{{.Tag}}
+    **Full Changelog**: https://github.com/nannyagent/nannyagent/compare/{{.PreviousTag}}...{{.Tag}}
 
 snapshot:
   version_template: "{{ .Version }}-SNAPSHOT-{{.ShortCommit}}"

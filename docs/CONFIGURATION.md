@@ -1,161 +1,543 @@
-# Configuration Management
+# Configuration Guide
+
+<div align="center">
+  <img src="https://avatars.githubusercontent.com/u/110624612" alt="NannyAI" width="120"/>
+  <h1>Configuration Management</h1>
+</div>
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Configuration Priority](#configuration-priority)
+- [Configuration File](#configuration-file)
+- [Environment Variables](#environment-variables)
+- [Configuration Options](#configuration-options)
+- [Usage Examples](#usage-examples)
+- [Security Best Practices](#security-best-practices)
+- [Troubleshooting](#troubleshooting)
 
 ## Overview
 
-NannyAgent uses a flexible configuration system that allows environment variables to be shared between:
-- Systemd service (daemon mode)
-- Manual CLI commands (diagnose, status, register)
-- Development/testing
+NannyAgent uses a simple, secure configuration system with two sources:
+
+1. **YAML configuration file**: `/etc/nannyagent/config.yaml`
+2. **Environment variables**: Override YAML settings
+
+This design provides flexibility for different deployment scenarios while maintaining security.
 
 ## Configuration Priority
 
-Configuration is loaded in the following order (later overrides earlier):
+Configuration is loaded in the following order (later sources override earlier):
 
 1. `/etc/nannyagent/config.yaml` (system-wide YAML config)
-2. `/etc/nannyagent/config.env` (system-wide environment file) ⭐ **Recommended**
-3. `./config.yaml` (local YAML for development)
-4. `./.env` (local .env for development)
-5. Environment variables (highest priority)
+2. Environment variables (highest priority - overrides YAML)
 
-## Shared Configuration File
+**That's it!** There are no `.env` files, no local config files, no other configuration locations.
+
+## Configuration File
 
 ### Location
-`/etc/nannyagent/config.env`
 
-### Purpose
-This file is used by **both**:
-- The systemd service (via `EnvironmentFile=-/etc/nannyagent/config.env`)
-- Manual CLI commands (loaded automatically by the agent)
+**Only one location is supported:**
+
+```text
+/etc/nannyagent/config.yaml
+```
 
 ### Format
-```bash
-# NannyAgent Configuration
-SUPABASE_PROJECT_URL=https://<supabase-project>.supabase.co
 
-# Optional settings
-# NANNYAI_PORTAL_URL=https://nannyai.dev
-# TOKEN_PATH=/var/lib/nannyagent/token.json
-# DEBUG=false
+```yaml
+# Required: NannyAPI backend URL
+nannyapi_url: https://api.nannyai.dev
+
+# Optional: Portal URL for device authorization (default: https://nannyai.dev)
+portal_url: https://nannyai.dev
+
+# Optional: Token storage path (default: /var/lib/nannyagent/token.json)
+token_path: /var/lib/nannyagent/token.json
+
+# Optional: Metrics collection interval in seconds (default: 30)
+metrics_interval: 30
+
+# Optional: Proxmox data collection interval in seconds (default: 300)
+proxmox_interval: 300
+
+# Optional: Enable debug logging (default: false)
+debug: false
+```
+
+### Creating Configuration File
+
+```bash
+# Create directory
+sudo mkdir -p /etc/nannyagent
+
+# Create configuration file
+sudo tee /etc/nannyagent/config.yaml > /dev/null <<EOF
+nannyapi_url: https://api.nannyai.dev
+portal_url: https://nannyai.dev
+token_path: /var/lib/nannyagent/token.json
+metrics_interval: 30
+proxmox_interval: 300
+debug: false
+EOF
+
+# Secure permissions (root only)
+sudo chmod 600 /etc/nannyagent/config.yaml
+sudo chown root:root /etc/nannyagent/config.yaml
 ```
 
 ### Permissions
+
+**Security is critical:**
+
 ```bash
-sudo chmod 600 /etc/nannyagent/config.env  # Root only
+# Configuration file should NOT be world-readable
+sudo chmod 600 /etc/nannyagent/config.yaml
+sudo chown root:root /etc/nannyagent/config.yaml
+
+# Verify
+ls -la /etc/nannyagent/config.yaml
+# Should show: -rw------- 1 root root
 ```
 
-## Installation
+## Environment Variables
 
-### Automatic (via install.sh)
-The installation script automatically creates `/etc/nannyagent/config.env` with default values:
+Environment variables have **highest priority** and override values from `/etc/nannyagent/config.yaml`.
+
+### Supported Variables
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `NANNYAPI_URL` | string | **(required)** | NannyAPI backend URL |
+| `NANNYAI_PORTAL_URL` | string | `https://nannyai.dev` | Portal URL for device auth |
+| `TOKEN_PATH` | string | `/var/lib/nannyagent/token.json` | Token storage location |
+| `DEBUG` | bool | `false` | Enable debug logging (`true` or `1`) |
+
+### Using Environment Variables
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/harshavmb/nannyagent/main/install.sh | sudo bash
+# Override API URL for testing
+export NANNYAPI_URL=http://localhost:3000
+sudo nannyagent --status
+
+# Enable debug mode temporarily
+export DEBUG=true
+sudo nannyagent --diagnose "check logs"
+
+# Use custom token path
+export TOKEN_PATH=/tmp/test-token.json
+sudo nannyagent --register
 ```
 
-### Manual (via Makefile)
+### Systemd Service with Environment Variables
+
+If using systemd, you can add environment variables to the service:
+
 ```bash
-make install-system
+# Edit service file
+sudo systemctl edit nannyagent
+
+# Add override:
+[Service]
+Environment="NANNYAPI_URL=https://api.nannyai.dev"
+Environment="DEBUG=false"
+
+# Reload and restart
+sudo systemctl daemon-reload
+sudo systemctl restart nannyagent
 ```
 
-This will:
-1. Copy the binary to `/usr/local/bin/nannyagent`
-2. Create `/etc/nannyagent/config.env` with default configuration
-3. Install the systemd service
-4. Reload systemd
+## Configuration Options
 
-### Manual Configuration
+### Required Settings
+
+#### `nannyapi_url` / `NANNYAPI_URL`
+
+**Required.** The backend API endpoint.
+
+**Examples:**
+```yaml
+nannyapi_url: https://api.nannyai.dev  # Production
+nannyapi_url: http://localhost:3000    # Development
+```
+
+**Environment variable:**
 ```bash
-sudo mkdir -p /etc/nannyagent
-sudo nano /etc/nannyagent/config.env
-# Add: SUPABASE_PROJECT_URL=https://your-project.supabase.co
-sudo chmod 600 /etc/nannyagent/config.env
+export NANNYAPI_URL=https://api.nannyai.dev
+```
+
+### Optional Settings
+
+#### `portal_url` / `NANNYAI_PORTAL_URL`
+
+Portal URL for device authorization flow.
+
+**Default:** `https://nannyai.dev`
+
+**Examples:**
+```yaml
+portal_url: https://nannyai.dev  # Production
+portal_url: http://localhost:3001  # Development
+```
+
+#### `token_path` / `TOKEN_PATH`
+
+Path to store OAuth tokens.
+
+**Default:** `/var/lib/nannyagent/token.json`
+
+**Examples:**
+```yaml
+token_path: /var/lib/nannyagent/token.json  # Default
+token_path: /custom/path/token.json          # Custom
+```
+
+#### `metrics_interval`
+
+System metrics collection interval in seconds.
+
+**Default:** `30` (30 seconds)
+
+**Examples:**
+```yaml
+metrics_interval: 30   # Every 30 seconds (default)
+metrics_interval: 60   # Every minute
+metrics_interval: 300  # Every 5 minutes
+```
+
+**Note:** No environment variable override available for this setting.
+
+#### `proxmox_interval`
+
+Proxmox data collection interval in seconds.
+
+**Default:** `300` (5 minutes)
+
+**Examples:**
+```yaml
+proxmox_interval: 300   # Every 5 minutes (default)
+proxmox_interval: 600   # Every 10 minutes
+proxmox_interval: 1800  # Every 30 minutes
+```
+
+**Note:** No environment variable override available for this setting.
+
+#### `debug` / `DEBUG`
+
+Enable debug-level logging for troubleshooting.
+
+**Default:** `false`
+
+**Examples:**
+```yaml
+debug: false  # Normal logging (default)
+debug: true   # Debug logging enabled
+```
+
+**Environment variable:**
+```bash
+export DEBUG=true  # or DEBUG=1
 ```
 
 ## Usage Examples
 
-### Systemd Service
-The service automatically loads `/etc/nannyagent/config.env`:
+### Standard Configuration
 
-```bash
-sudo systemctl start nannyagent
-sudo systemctl status nannyagent
+**File:** `/etc/nannyagent/config.yaml`
+```yaml
+nannyapi_url: https://api.nannyai.dev
+portal_url: https://nannyai.dev
+token_path: /var/lib/nannyagent/token.json
+metrics_interval: 30
+proxmox_interval: 300
+debug: false
 ```
 
-### Manual CLI Commands
-Commands automatically load `/etc/nannyagent/config.env` - **no need to export env vars**:
-
+**Usage:**
 ```bash
-# Status check
+# All commands use config file
+sudo nannyagent --status
+sudo nannyagent --register
+sudo nannyagent --diagnose "nginx is down"
+```
+
+### Development Configuration
+
+**File:** `/etc/nannyagent/config.yaml`
+```yaml
+nannyapi_url: http://localhost:3000
+portal_url: http://localhost:3001
+debug: true
+metrics_interval: 60
+proxmox_interval: 600
+```
+
+**Usage:**
+```bash
+# Test against local backend
+sudo nannyagent --status
+```
+
+### Temporary Override
+
+**File:** `/etc/nannyagent/config.yaml` (production settings)
+```yaml
+nannyapi_url: https://api.nannyai.dev
+debug: false
+```
+
+**Override temporarily:**
+```bash
+# Use staging API for one command
+export NANNYAPI_URL=https://staging-api.nannyai.dev
 sudo nannyagent --status
 
-# Diagnosis
-sudo nannyagent --diagnose "disk is full on /var partition"
-
-# Registration
-sudo nannyagent --register
+# Or inline
+sudo NANNYAPI_URL=https://staging-api.nannyai.dev nannyagent --status
 ```
 
-### Override Configuration
-You can override the file configuration with environment variables:
+### Systemd Service
+
+The systemd service automatically loads `/etc/nannyagent/config.yaml`:
 
 ```bash
-sudo SUPABASE_PROJECT_URL=https://custom-url.supabase.co nannyagent --status
+# Start daemon
+sudo systemctl start nannyagent
+
+# Check status
+sudo systemctl status nannyagent
+
+# View logs
+sudo journalctl -u nannyagent -f
 ```
 
-## Benefits
+**Service file example:** `/etc/systemd/system/nannyagent.service`
+```ini
+[Unit]
+Description=NannyAgent - AI-Powered Linux Diagnostic Agent
+After=network-online.target
+Wants=network-online.target
 
-✅ **Single Source of Truth**: One config file for all operations  
-✅ **No User Setup**: Manual commands work without exporting env vars  
-✅ **Security**: File is root-only readable (`chmod 600`)  
-✅ **Consistency**: Systemd service and CLI use identical configuration  
-✅ **Audit Trail**: All operations logged to syslog via journalctl  
+[Service]
+Type=simple
+ExecStart=/usr/sbin/nannyagent --daemon
+Restart=always
+RestartSec=10
+User=root
+StandardOutput=journal
+StandardError=journal
 
-## Verification
+# Optional: Override settings
+# Environment="DEBUG=true"
 
-Check that configuration is loaded correctly:
+[Install]
+WantedBy=multi-user.target
+```
+
+## Security Best Practices
+
+### 1. Protect Configuration Files
 
 ```bash
-# View the config file
-sudo cat /etc/nannyagent/config.env
+# YAML config should be root-only readable
+sudo chmod 600 /etc/nannyagent/config.yaml
+sudo chown root:root /etc/nannyagent/config.yaml
+```
 
-# Test that commands load it
-sudo env -i PATH="$PATH" nannyagent --version  # Should work
-sudo env -i PATH="$PATH" nannyagent --status   # Should work
+### 2. Protect Token Storage
+
+```bash
+# Token file contains OAuth credentials
+sudo mkdir -p /var/lib/nannyagent
+sudo chmod 700 /var/lib/nannyagent
+sudo chmod 600 /var/lib/nannyagent/token.json
+```
+
+### 3. Use HTTPS Only
+
+```yaml
+# ALWAYS use HTTPS for production
+nannyapi_url: https://api.nannyai.dev  # ✓ Secure
+
+# NEVER use HTTP in production
+# nannyapi_url: http://api.nannyai.dev  # ✗ Insecure
+```
+
+### 4. Limit Debug Mode
+
+```yaml
+# Disable debug in production (avoid sensitive data in logs)
+debug: false
+```
+
+### 5. Review Logs Regularly
+
+```bash
+# Check agent logs for suspicious activity
+sudo journalctl -u nannyagent | grep -i "error\|auth\|failed"
 ```
 
 ## Troubleshooting
 
-### "missing required environment variable: SUPABASE_PROJECT_URL"
+### "missing required configuration: NANNYAPI_URL must be set"
 
-**Cause**: `/etc/nannyagent/config.env` doesn't exist or is empty
+**Cause:** No configuration file or `NANNYAPI_URL` not set.
 
-**Solution**:
+**Solution:**
+```bash
+# Create config file
+sudo mkdir -p /etc/nannyagent
+sudo tee /etc/nannyagent/config.yaml > /dev/null <<EOF
+nannyapi_url: https://api.nannyai.dev
+EOF
+sudo chmod 600 /etc/nannyagent/config.yaml
+
+# Or use environment variable
+export NANNYAPI_URL=https://api.nannyai.dev
+```
+
+### Configuration File Not Found
+
+**Check if file exists:**
+```bash
+ls -la /etc/nannyagent/config.yaml
+```
+
+**If missing, create it:**
 ```bash
 sudo mkdir -p /etc/nannyagent
-echo "SUPABASE_PROJECT_URL=https://<supabase-project>.supabase.co" | sudo tee /etc/nannyagent/config.env
-sudo chmod 600 /etc/nannyagent/config.env
+sudo tee /etc/nannyagent/config.yaml > /dev/null <<EOF
+nannyapi_url: https://api.nannyai.dev
+portal_url: https://nannyai.dev
+EOF
+sudo chmod 600 /etc/nannyagent/config.yaml
 ```
 
-### Configuration not loading
+### Permission Denied Reading Config
 
-**Check permissions**:
+**Check permissions:**
 ```bash
-ls -la /etc/nannyagent/config.env
-# Should show: -rw------- 1 root root
+ls -la /etc/nannyagent/config.yaml
+# Should be: -rw------- 1 root root
 ```
 
-**Check systemd service**:
+**Fix permissions:**
 ```bash
-sudo systemctl cat nannyagent | grep EnvironmentFile
-# Should show: EnvironmentFile=-/etc/nannyagent/config.env
+sudo chmod 600 /etc/nannyagent/config.yaml
+sudo chown root:root /etc/nannyagent/config.yaml
 ```
 
-### View loaded configuration
-
+**Run as root:**
 ```bash
-# Check what the service sees
+# Agent requires root for eBPF
+sudo nannyagent --status
+```
+
+### Invalid YAML Syntax
+
+**Check YAML syntax:**
+```bash
+# Install yamllint
+sudo apt-get install yamllint  # Ubuntu/Debian
+
+# Validate syntax
+yamllint /etc/nannyagent/config.yaml
+```
+
+**Common YAML mistakes:**
+```yaml
+# WRONG: Missing space after colon
+nannyapi_url:https://api.nannyai.dev
+
+# CORRECT: Space after colon
+nannyapi_url: https://api.nannyai.dev
+
+# WRONG: Using tabs for indentation
+debug:	true
+
+# CORRECT: Use spaces for indentation
+debug: true
+```
+
+### View Loaded Configuration
+
+**Check what the agent sees:**
+```bash
+# Run with debug to see config loading
+sudo DEBUG=true nannyagent --status 2>&1 | grep -i config
+
+# Expected output:
+# INFO: Loaded configuration from /etc/nannyagent/config.yaml
+```
+
+### Verify Environment Variables
+
+**Check what's set:**
+```bash
+# Show all NANNY* variables
+env | grep NANNY
+
+# Check specific variable
+echo $NANNYAPI_URL
+```
+
+### Systemd Service Configuration Issues
+
+**Check service environment:**
+```bash
+# View service environment
 sudo systemctl show nannyagent --property=Environment
 
-# Check logs for config loading
-sudo journalctl -t nannyagent | grep "Loaded configuration"
+# View full service file
+sudo systemctl cat nannyagent
 ```
+
+**Check logs for config errors:**
+```bash
+# View agent logs
+sudo journalctl -u nannyagent -n 50
+
+# Filter for config-related messages
+sudo journalctl -u nannyagent | grep -i "config\|load"
+```
+
+---
+
+## Complete Configuration Example
+
+**Production Configuration:**
+
+```yaml
+# /etc/nannyagent/config.yaml
+
+# Backend API endpoint (required)
+nannyapi_url: https://api.nannyai.dev
+
+# Portal URL for device authorization
+portal_url: https://nannyai.dev
+
+# Token storage location
+token_path: /var/lib/nannyagent/token.json
+
+# Metrics collection every 30 seconds
+metrics_interval: 30
+
+# Proxmox data collection every 5 minutes
+proxmox_interval: 300
+
+# Disable debug logging in production
+debug: false
+```
+
+**Permissions:**
+```bash
+-rw------- 1 root root /etc/nannyagent/config.yaml
+```
+
+---
+
+**For more information:**
+- [Installation Guide](INSTALLATION.md)
+- [Architecture Documentation](ARCHITECTURE.md)
+- [API Integration Guide](API_INTEGRATION.md)

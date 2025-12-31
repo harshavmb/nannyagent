@@ -33,7 +33,6 @@ nanny-agent*
 # Build directory
 build/
 dist/
-docs/
 coverage.txt
 coverage.out
 CODING-AGENT.md
