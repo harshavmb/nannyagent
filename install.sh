@@ -12,7 +12,7 @@ SYSTEMD_SERVICE="nannyagent.service"
 SYSTEMD_DIR="/etc/systemd/system"
 
 # GitHub repository for releases
-GITHUB_REPO="${GITHUB_REPO:-harshavmb/nannyagent}"
+GITHUB_REPO="${GITHUB_REPO:-nannyagent/nannyagent}"
 INSTALL_FROM_SOURCE="${INSTALL_FROM_SOURCE:-false}"
 # Auto-detect latest version if not specified
 INSTALL_VERSION="${INSTALL_VERSION:-latest}"

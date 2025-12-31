@@ -36,11 +36,11 @@ install-system: build
 	sudo cp $(BINARY_NAME) /usr/sbin/
 	sudo chmod +x /usr/sbin/$(BINARY_NAME)
 	sudo mkdir -p /etc/nannyagent
-	sudo bash -c 'echo "SUPABASE_PROJECT_URL=https://<supabase-project>.supabase.co" > /etc/nannyagent/config.env'
-	sudo chmod 600 /etc/nannyagent/config.env
+	sudo bash -c 'cat > /etc/nannyagent/config.yaml <<EOF\nnannyapi_url: https://api.nannyai.dev\nportal_url: https://nannyai.dev\ntoken_path: /var/lib/nannyagent/token.json\nmetrics_interval: 30\nproxmox_interval: 300\ndebug: false\nEOF'
+	sudo chmod 600 /etc/nannyagent/config.yaml
 	sudo cp nannyagent.service /etc/systemd/system/
 	sudo systemctl daemon-reload
-	@echo "Service installed. Run: sudo systemctl start nannyagent"
+	@echo "Service installed. Configure /etc/nannyagent/config.yaml then run: sudo systemctl start nannyagent"
 
 fmt:
 	go fmt ./...
