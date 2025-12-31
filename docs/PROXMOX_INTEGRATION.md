@@ -39,7 +39,7 @@ If Proxmox is detected, the agent starts the Proxmox collector automatically.
 
 ## Architecture
 
-```
+```flowchart
 ┌──────────────────────────────────────────────────────────────────────┐
 │                      Proxmox VE Cluster                              │
 │                                                                      │
@@ -95,7 +95,7 @@ PROXMOX_INTERVAL=300  # seconds
 
 ### Collection Flow
 
-```
+```flowchart
 Every 5 minutes:
 
 ┌────────────────────────────────┐
@@ -388,7 +388,7 @@ $ pvesh get /nodes/pve-node-01/lxc/100/config --output-format json
 ### Network Configuration Parsing
 
 **net0 Field:**
-```
+```text
 name=eth0,bridge=vmbr0,firewall=1,gw=10.0.1.1,hwaddr=BC:24:11:12:34:56,ip=10.0.1.100/24,type=veth
 ```
 
@@ -403,7 +403,7 @@ name=eth0,bridge=vmbr0,firewall=1,gw=10.0.1.1,hwaddr=BC:24:11:12:34:56,ip=10.0.1
 ### Features
 
 **Nesting:**
-```
+```text
 features: nesting=1,keyctl=1
 ```
 - `nesting=1`: Container can run other containers (Docker/LXC)
@@ -618,7 +618,7 @@ Content-Type: application/json
 
 ### Scenario 1: Single-Node Proxmox
 
-```
+```text
 ┌────────────────────────┐
 │    pve-standalone      │
 │  ┌──────────────────┐  │
@@ -640,7 +640,7 @@ Content-Type: application/json
 
 ### Scenario 2: Three-Node Cluster
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │              Proxmox Cluster: production                │
 │                                                         │
@@ -665,7 +665,7 @@ Content-Type: application/json
 
 ### Scenario 3: Multi-Cluster
 
-```
+```flowchart
 Cluster A:                  Cluster B:
 ┌─────────────────┐        ┌─────────────────┐
 │ pve-a-01 Agent  │        │ pve-b-01 Agent  │

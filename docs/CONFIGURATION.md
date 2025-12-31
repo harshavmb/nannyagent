@@ -40,7 +40,7 @@ Configuration is loaded in the following order (later sources override earlier):
 
 **Only one location is supported:**
 
-```
+```text
 /etc/nannyagent/config.yaml
 ```
 

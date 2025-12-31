@@ -41,7 +41,7 @@ NannyAgent implements the OAuth 2.0 Device Authorization Grant flow for secure, 
 
 #### Flow Diagram
 
-```
+```text
 ┌──────────┐                  ┌──────────┐                 ┌──────────┐
 │  Agent   │                  │ NannyAPI │                 │  Portal  │
 └────┬─────┘                  └────┬─────┘                 └────┬─────┘
@@ -273,7 +273,7 @@ GET /api/realtime
 ```
 
 **Response (SSE Stream):**
-```
+```http
 event: connect
 data: {"clientId": "client-abc123xyz"}
 
@@ -301,7 +301,7 @@ HTTP/1.1 204 No Content
 
 #### Investigation Events
 
-```
+```http
 event: record
 data: {"action":"create","record":{"id":"inv-123","agent_id":"agent-123","user_prompt":"PostgreSQL is slow","status":"pending","priority":"high","created_at":"2025-12-30T10:30:00Z"}}
 
@@ -324,7 +324,7 @@ data: {"action":"create","record":{"id":"inv-123","agent_id":"agent-123","user_p
 
 #### Patch Operation Events
 
-```
+```http
 event: record
 data: {"action":"create","record":{"id":"patch-op-456","agent_id":"agent-123","mode":"dry-run","script_id":"patch-001","script_url":"/api/patches/patch-001/script","script_args":"--verbose","lxc_id":"lxc-100","vmid":"100"}}
 
@@ -857,7 +857,7 @@ Content-Type: text/plain
 ### Retry Strategy
 
 **Exponential Backoff:**
-```
+```text
 Attempt 1: Wait 1 second
 Attempt 2: Wait 2 seconds
 Attempt 3: Wait 4 seconds

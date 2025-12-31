@@ -49,7 +49,7 @@ $ uname -r
 
 ## eBPF Architecture
 
-```
+```flowchart
 ┌─────────────────────────────────────────────────────────────────┐
 │                     NannyAgent Process                          │
 │  ┌────────────────────────────────────────────────────────────┐ │
@@ -322,7 +322,7 @@ type TraceEvent struct {
 ### Event Parsing
 
 **Raw bpftrace Output:**
-```
+```text
 12:34:56 postgres        1234   10.0.1.100      5432
 12:34:57 nginx           5678   172.16.0.50     443
 ```
@@ -462,7 +462,7 @@ END {
 ```
 
 **Output:**
-```
+```text
 I/O Latency Distribution (microseconds):
 [2, 4)      245 |@@@@@@@@@@@@                      |
 [4, 8)      456 |@@@@@@@@@@@@@@@@@@@@@             |
@@ -670,7 +670,7 @@ Cleaned up automatically after completion.
 
 All eBPF activity is logged:
 
-```
+```text
 [INFO] Starting eBPF trace: tcp_connect_monitor (kprobe:tcp_connect, 15s)
 [INFO] eBPF trace completed: 1247 events captured
 [INFO] Trace statistics: postgres=856, nginx=245, redis=146
@@ -724,7 +724,7 @@ User reports: "PostgreSQL queries are extremely slow"
 ### Execution
 
 **Disk I/O Trace:**
-```
+```text
 === Disk I/O Latency ===
 [32, 64)     12 |@@                |
 [64, 128)    45 |@@@@@@            |
@@ -734,7 +734,7 @@ User reports: "PostgreSQL queries are extremely slow"
 ```
 
 **VFS Read Trace:**
-```
+```text
 15:23:45 postgres  1234  /var/lib/postgresql/data/base/16384/12345
 15:23:45 postgres  1234  /var/lib/postgresql/data/base/16384/12346
 15:23:45 postgres  1234  /var/lib/postgresql/data/base/16384/12347

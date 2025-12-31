@@ -26,7 +26,7 @@ NannyAgent is a sophisticated Linux diagnostic agent built in Go that combines A
 
 ## System Architecture
 
-```
+```flowchart
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          NannyAI Platform                           │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐   │
@@ -114,7 +114,7 @@ Implements OAuth 2.0 Device Flow for secure agent registration.
 - Authenticated HTTP request handling
 
 **Flow:**
-```
+```flowchart
 ┌────────────┐                ┌────────────┐                ┌────────────┐
 │   Agent    │                │  NannyAPI  │                │   Portal   │
 └──────┬─────┘                └──────┬─────┘                └──────┬─────┘
@@ -172,7 +172,7 @@ The brain of the diagnostic system that orchestrates AI-powered issue resolution
 - Iterative diagnostic loops
 
 **Agent Workflow:**
-```
+```flowchart
 ┌──────────────────────────────────────────────────────────────────┐
 │ 1. User Input: "PostgreSQL is slow"                              │
 └──────────────────────────┬───────────────────────────────────────┘
@@ -362,7 +362,7 @@ The `investigation_id` field is critical - it tells NannyAPI which investigation
 Maintains persistent SSE (Server-Sent Events) connection for real-time communication.
 
 **Connection Flow:**
-```
+```flowchart
 ┌──────────┐                              ┌──────────┐
 │  Agent   │                              │ NannyAPI │
 └────┬─────┘                              └────┬─────┘
@@ -678,7 +678,7 @@ Executes patch scripts for system remediation with security validation.
 
 ### Metrics Ingestion Flow
 
-```
+```flowchart
 Every 30 seconds (configurable via metrics_interval):
 
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -891,7 +891,7 @@ Content-Type: application/json
 
 ### Proxmox Ingestion Flow
 
-```
+```flowchart
 Every 5 minutes (if Proxmox VE detected):
 
 ┌────────────────────────────────────────────────────────────────────────────────────┐
@@ -943,7 +943,7 @@ Every 5 minutes (if Proxmox VE detected):
 
 ### Investigation Lifecycle
 
-```
+```flowchart
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                              INVESTIGATION DIAGNOSTIC WORKFLOW                                  │
 ├─────────────────────────────────────────────────────────────────────────────────────────────────┤
@@ -995,7 +995,7 @@ Every 5 minutes (if Proxmox VE detected):
 
 ### Realtime Event Processing
 
-```
+```flowchart
 ┌───────────────────────────────────────────────────────────────────────────────────┐
 │                       SERVER-SENT EVENTS (SSE) FLOW                               │
 ├───────────────────────────────────────────────────────────────────────────────────┤

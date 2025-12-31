@@ -190,7 +190,7 @@ make test
 
 # Run integration tests
 ./tests/test_ebpf_integration.sh
-```
+```bash
 
 ## Installation Exit Codes
 
@@ -357,7 +357,7 @@ Secure script execution for system remediation:
 
 ## Architecture Overview
 
-```
+```flowchart
 ┌─────────────────────────────────────────────────────────┐
 │                    NannyAI Platform                     │
 │  (Web Portal + NannyAPI + TensorZero AI)                │

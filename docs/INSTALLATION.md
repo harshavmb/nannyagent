@@ -240,7 +240,7 @@ sudo nannyagent --register
 ```
 
 **Output:**
-```
+```text
 NannyAgent - Device Registration
 
 Visit: https://nannyai.dev/device
@@ -257,7 +257,7 @@ Waiting for authorization...
 5. Wait for confirmation
 
 **Success output:**
-```
+```text
 ✓ Device authorized successfully!
 ✓ Agent registered with ID: agent-550e8400-e29b-41d4-a716-446655440000
 ✓ Token stored: /var/lib/nannyagent/token.json
@@ -274,7 +274,7 @@ nannyagent --status
 ```
 
 **Expected output:**
-```
+```text
 NannyAgent Status
 
 ✓ Agent ID: agent-550e8400-e29b-41d4-a716-446655440000
@@ -313,7 +313,7 @@ sudo systemctl status nannyagent
 ```
 
 **Expected output:**
-```
+```text
 ● nannyagent.service - NannyAgent - AI-Powered Linux Diagnostic Agent
      Loaded: loaded (/etc/systemd/system/nannyagent.service; enabled; vendor preset: enabled)
      Active: active (running) since Mon 2025-12-30 10:30:00 UTC; 5min ago
