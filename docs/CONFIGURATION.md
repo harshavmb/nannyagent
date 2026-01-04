@@ -118,7 +118,7 @@ Environment variables have **highest priority** and override values from `/etc/n
 
 ```bash
 # Override API URL for testing
-export NANNYAPI_URL=http://localhost:3000
+export NANNYAPI_URL=http://localhost:8090
 sudo nannyagent --status
 
 # Enable debug mode temporarily
@@ -159,7 +159,7 @@ sudo systemctl restart nannyagent
 **Examples:**
 ```yaml
 nannyapi_url: https://api.nannyai.dev  # Production
-nannyapi_url: http://localhost:3000    # Development
+nannyapi_url: http://localhost:8090    # Development
 ```
 
 **Environment variable:**
@@ -178,7 +178,7 @@ Portal URL for device authorization flow.
 **Examples:**
 ```yaml
 portal_url: https://nannyai.dev  # Production
-portal_url: http://localhost:3001  # Development
+portal_url: http://localhost:8080  # Development
 ```
 
 #### `token_path` / `TOKEN_PATH`
@@ -266,8 +266,8 @@ sudo nannyagent --diagnose "nginx is down"
 
 **File:** `/etc/nannyagent/config.yaml`
 ```yaml
-nannyapi_url: http://localhost:3000
-portal_url: http://localhost:3001
+nannyapi_url: http://localhost:8090
+portal_url: http://localhost:8080
 debug: true
 metrics_interval: 60
 proxmox_interval: 600

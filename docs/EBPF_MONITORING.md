@@ -644,7 +644,7 @@ const (
 $ sudo nannyagent
 
 # Or with CAP_BPF capability (Linux 5.8+)
-$ sudo setcap cap_bpf=ep /usr/local/bin/nannyagent
+$ sudo setcap cap_bpf=ep /usr/sbin/nannyagent
 ```
 
 ### Safety Features

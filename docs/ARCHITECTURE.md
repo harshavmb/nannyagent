@@ -16,9 +16,9 @@
 
 ## Overview
 
-NannyAgent is a sophisticated Linux diagnostic agent built in Go that combines AI-powered diagnostics with deep eBPF kernel monitoring. It runs as a daemon on Linux hosts and Proxmox VE nodes, providing:
+NannyAgent is a Linux diagnostic agent built in Go that combines AI-powered diagnostics with deep eBPF kernel monitoring. It runs as a daemon on Linux hosts and Proxmox VE nodes, providing:
 
-- **AI-Powered Diagnostics**: Real-time issue analysis using TensorZero AI
+- **AI-Powered Diagnostics**: Real-time issue analysis using AI APIs behind Tensorzero gateway
 - **eBPF Monitoring**: Kernel-level tracing for network, processes, files, and security events
 - **Proxmox Integration**: Automated collection of cluster, node, LXC, and QEMU-VM data
 - **Patch Management**: Secure script execution for system remediation
@@ -44,7 +44,7 @@ NannyAgent is a sophisticated Linux diagnostic agent built in Go that combines A
           ┌──────────────────────────────────────────────────────┐
           │              NannyAgent (This Component)             │
           │  ┌────────────────────────────────────────────────┐  │
-          │  │           Agent Core (main.go)                 │  │
+          │  │           Agent Core                           │  │
           │  │  - Daemon Management                           │  │
           │  │  - Command-line Interface                      │  │
           │  │  - Lifecycle Management                        │  │
@@ -58,7 +58,7 @@ NannyAgent is a sophisticated Linux diagnostic agent built in Go that combines A
 │         └────────────┴──────────┴──────────┴────────────────┘  │         │
 │                                                                │         │
 │  ┌──────────────────────────────────────────────────────────┐  │         │
-│  │              Diagnostic Agent (agent.go)                 │  │         │
+│  │              Diagnostic Agent                            │  │         │
 │  │  - AI Conversation Management                            │  │         │
 │  │  - Investigation Lifecycle                               │  │         │
 │  │  - Command Execution Orchestration                       │  │         │
@@ -68,9 +68,9 @@ NannyAgent is a sophisticated Linux diagnostic agent built in Go that combines A
 │  │                                                          │  │         │
 │  ▼                    ▼                  ▼                  ▼  │         │
 │ ┌────────────┐  ┌──────────┐  ┌─────────────┐  ┌──────────┐    │         │
-│ │  eBPF      │  │ Command  │  │Investigations│  │ Realtime │   │         │
-│ │  Trace     │  │ Executor │  │   Client     │  │  Client  │   │         │
-│ │  Manager   │  │          │  │              │  │  (SSE)   │   │         │
+│ │  eBPF      │  │ Command  │  │Investigations│ │ Realtime │    │         │
+│ │  Trace     │  │ Executor │  │   Client     │ │  Client  │    │         │
+│ │  Manager   │  │          │  │              │ │  (SSE)   │    │         │
 │ └────────────┘  └──────────┘  └─────────────┘  └──────────┘    │         │
 │                                                                │         │
 │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────┐    │         │
@@ -912,27 +912,27 @@ Every 5 minutes (if Proxmox VE detected):
 │           │                                                                        │
 │           ├──────────────────┬──────────────────┬──────────────────┐               │
 │           ▼                  ▼                  ▼                  ▼               │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐.   │
-│  │ Collect Node   │  │ Collect Cluster│  │ Collect LXC    │  │ Collect QEMU   │.   │
-│  │ Information    │  │ Information    │  │ Containers     │  │ VMs            │.   │
-│  │                │  │                │  │                │  │                │.   │
-│  │ pvesh get      │  │ pvesh get      │  │ For each LXC:  │  │ For each VM:   │.   │
-│  │ /nodes/{node}/ │  │ /cluster/      │  │ pvesh get      │  │ pvesh get      │.   │
-│  │ status         │  │ status         │  │ /nodes/{node}/ │  │ /nodes/{node}/ │.   │
-│  │                │  │                │  │ lxc/{id}/config│  │ qemu/{id}/     │.   │
-│  │                │  │                │  │                │  │ config         │.   │
-│  └────────┬───────┘  └────────┬───────┘  └────────┬───────┘  └────────┬───────┘.   │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐    │
+│  │ Collect Node   │  │ Collect Cluster│  │ Collect LXC    │  │ Collect QEMU   │    │
+│  │ Information    │  │ Information    │  │ Containers     │  │ VMs            │    │
+│  │                │  │                │  │                │  │                │    │
+│  │ pvesh get      │  │ pvesh get      │  │ For each LXC:  │  │ For each VM:   │    │
+│  │ /nodes/{node}/ │  │ /cluster/      │  │ pvesh get      │  │ pvesh get      │    │
+│  │ status         │  │ status         │  │ /nodes/{node}/ │  │ /nodes/{node}/ │    │
+│  │                │  │                │  │ lxc/{id}/config│  │ qemu/{id}/     │    │
+│  │                │  │                │  │                │  │ config         │    │
+│  └────────┬───────┘  └────────┬───────┘  └────────┬───────┘  └────────┬───────┘    │
 │           │                   │                   │                   │            │
 │           ▼                   ▼                   ▼                   ▼            │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐.   │
-│  │ POST /api/     │  │ POST /api/     │  │ POST /api/     │  │ POST /api/     │.   │
-│  │ proxmox/node   │  │ proxmox/cluster│  │ proxmox/lxc    │  │ proxmox/qemu   │.   │
-│  │                │  │                │  │                │  │                │.   │
-│  │ NodeInfo JSON  │  │ ClusterInfo    │  │ LXCInfo JSON   │  │ QemuInfo JSON  │.   │
-│  │ (status, IP,   │  │ (name, nodes,  │  │ (ID, status,   │  │ (ID, status,   │.   │
-│  │  version)      │  │  quorum)       │  │  CPU, memory,  │  │  disks, CPU,   │.   │
-│  │                │  │                │  │  networking)   │  │  networking)   │.   │
-│  └────────────────┘  └────────────────┘  └────────────────┘  └────────────────┘.   │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐    │
+│  │ POST /api/     │  │ POST /api/     │  │ POST /api/     │  │ POST /api/     │    │
+│  │ proxmox/node   │  │ proxmox/cluster│  │ proxmox/lxc    │  │ proxmox/qemu   │    │
+│  │                │  │                │  │                │  │                │    │
+│  │ NodeInfo JSON  │  │ ClusterInfo    │  │ LXCInfo JSON   │  │ QemuInfo JSON  │    │
+│  │ (status, IP,   │  │ (name, nodes,  │  │ (ID, status,   │  │ (ID, status,   │    │
+│  │  version)      │  │  quorum)       │  │  CPU, memory,  │  │  disks, CPU,   │    │
+│  │                │  │                │  │  networking)   │  │  networking)   │    │
+│  └────────────────┘  └────────────────┘  └────────────────┘  └────────────────┘    │
 │                                                                                    │
 │  All data sent to NannyAPI with Bearer token authentication                        │
 │                                                                                    │

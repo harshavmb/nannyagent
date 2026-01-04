@@ -59,7 +59,7 @@ We welcome the following types of contributions:
 
 ### Prerequisites
 
-- **Go 1.21+**: [Install Go](https://go.dev/doc/install)
+- **Go 1.24+**: [Install Go](https://go.dev/doc/install)
 - **Linux kernel 5.x+**: Required for eBPF support
 - **bpftrace**: Install via package manager
   ```bash
