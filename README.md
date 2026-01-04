@@ -9,15 +9,15 @@ A sophisticated Go-based agent that combines AI-powered diagnostics with eBPF ke
 
 ## Features
 
-- 🤖 **AI-Powered Diagnostics** - Intelligent issue analysis and resolution planning via TensorZero
-- 🔍 **eBPF Deep Monitoring** - Real-time kernel-level tracing (network, processes, files, I/O)
-- 🛡️ **Safe Command Execution** - Validated execution with timeouts and security checks
-- 📊 **System Metrics Collection** - Comprehensive CPU, memory, disk, network metrics every 30s
-- 🖥️ **Proxmox Integration** - Automatic cluster, node, LXC, and QEMU-VM monitoring
-- 🔄 **Realtime Communication** - Server-Sent Events for instant investigation dispatch
-- 🔧 **Patch Management** - Secure script execution for system remediation (host & LXC)
-- 🔐 **OAuth Device Flow** - Secure agent registration and authentication
-- ✅ **Comprehensive Testing** - Unit tests and integration tests for all components
+- **AI-Powered Diagnostics** - Intelligent issue analysis and resolution planning
+- **eBPF Deep Monitoring** - Real-time kernel-level tracing (network, processes, files, I/O)
+- **Safe Command Execution** - Validated execution with timeouts and security checks (no changes made to the system)
+- **System Metrics Collection** - Comprehensive CPU, memory, disk, network metrics every 30s
+- **Proxmox Integration** - Automatic cluster, node, LXC, and QEMU-VM ingestion
+- **Realtime Communication** - Server-Sent Events for instant investigation dispatch
+- **Patch Management** - Update OS & system packages of both hosts & LXCs (including scheduling)
+- **OAuth Device Flow** - Secure agent registration and authentication
+- **Comprehensive Testing** - Unit tests and integration tests for all components
 
 ## Documentation
 
@@ -27,8 +27,8 @@ Comprehensive documentation is available in the [docs/](docs/) directory:
 - **[Configuration Guide](docs/CONFIGURATION.md)** - Configuration options and environment variables
 - **[Architecture](docs/ARCHITECTURE.md)** - System design, components, and data flows
 - **[API Integration](docs/API_INTEGRATION.md)** - REST API, SSE, OAuth, and all backend endpoints
-- **[eBPF Monitoring](docs/EBPF_MONITORING.md)** - Kernel-level tracing with bpftrace (exclusive)
-- **[Proxmox Integration](docs/PROXMOX_INTEGRATION.md)** - Cluster, node, LXC, QEMU monitoring
+- **[eBPF Monitoring](docs/EBPF_MONITORING.md)** - Kernel-level tracing with bpftrace
+- **[Proxmox Integration](docs/PROXMOX_INTEGRATION.md)** - Cluster, node, LXC, QEMU info ingestion
 - **[Contributing](CONTRIBUTORS.md)** - How to contribute to NannyAgent
 - **[Security Policy](SECURITY.md)** - Security practices and vulnerability reporting
 
@@ -37,9 +37,9 @@ Comprehensive documentation is available in the [docs/](docs/) directory:
 - **Operating System**: Linux only (no Docker/LXC containers)
 - **Architecture**: amd64 (x86_64) or arm64 (aarch64)
 - **Kernel Version**: Linux kernel 5.x or higher
-- **Privileges**: Root/sudo access required for eBPF functionality
+- **Privileges**: root access required for eBPF functionality & patching
 - **Dependencies**: bpftrace (automatically installed by installer)
-- **Network**: Connectivity to NannyAPI backend
+- **Network**: Connectivity to NannyAPI backend (defaults to https://api.nannyai.dev)
 
 ## Quick Installation
 
@@ -71,14 +71,14 @@ wget -qO- https://raw.githubusercontent.com/nannyagent/nannyagent/main/install.s
    ```
 
 The installer will:
-- ✅ Verify system requirements (OS, architecture, kernel version)
-- ✅ Check for existing installations
-- ✅ Install eBPF tools (bpftrace)
-- ✅ Download pre-built binary or build from source
-- ✅ Install to `/usr/sbin/nannyagent`
-- ✅ Create configuration `/etc/nannyagent/config.yaml`
-- ✅ Create secure data directory `/var/lib/nannyagent`
-- ✅ Install systemd service
+- Verify system requirements (OS, architecture, kernel version)
+- Check for existing installations
+- Install eBPF tools (bpftrace)
+- Download pre-built binary or build from source
+- Install to `/usr/sbin/nannyagent`
+- Create configuration `/etc/nannyagent/config.yaml`
+- Create secure data directory `/var/lib/nannyagent`
+- Install systemd service
 
 ## Configuration
 
@@ -116,15 +116,15 @@ See [Configuration Guide](docs/CONFIGURATION.md) for all options.
 ## Command-Line Options
 
 ```bash
-# Show version (no sudo required)
+# Show version
 nannyagent --version
 nannyagent -v
 
-# Show help (no sudo required)
+# Show help
 nannyagent --help
 nannyagent -h
 
-# Run the agent (requires sudo)
+# Run the agent
 sudo nannyagent
 ```
 
@@ -188,10 +188,6 @@ The agent includes comprehensive integration tests that simulate realistic Linux
 # Run unit tests
 make test
 
-# Run integration tests
-./tests/test_ebpf_integration.sh
-```bash
-
 ## Installation Exit Codes
 
 The installer uses specific exit codes for different failure scenarios:
@@ -221,7 +217,7 @@ The installer uses specific exit codes for different failure scenarios:
 
 **Error: "Another instance may already be installed"**
 - Check if `/var/lib/nannyagent` exists
-- Remove it if you're sure: `sudo rm -rf /var/lib/nannyagent`
+- Remove it if you're sure: `sudo rm -rf /var/lib/nannyagent` (agent removed & recreated)
 - Then retry installation
 
 **Warning: "Cannot connect to NannyAPI"**
@@ -264,23 +260,20 @@ sudo ./nannyagent
 ```bash
 # Run unit tests
 make test
-
-# Test eBPF capabilities
-./tests/test_ebpf_integration.sh
 ```
 
 ## Safety & Security
 
-- ✅ **Command Validation**: All commands are validated before execution
-- ✅ **Read-Only Focus**: Diagnostic commands are read-only by default
-- ✅ **Timeout Protection**: Commands have timeouts to prevent hanging
-- ✅ **eBPF Safety**: eBPF programs are verified by kernel, read-only, and time-limited
-- ✅ **Secure Token Storage**: Tokens stored with 0600 permissions in `/var/lib/nannyagent/`
-- ✅ **OAuth Authentication**: Industry-standard OAuth 2.0 Device Flow
-- ✅ **TLS/HTTPS**: All API communication over HTTPS
-- ✅ **No Shell Injection**: Commands constructed safely without shell expansion
-- ✅ **Patch Validation**: SHA256 hash validation before script execution
-- ✅ **Root Privilege Checks**: Validated at startup with clear error messages
+- **Command Validation**: All commands are validated before execution
+- **Read-Only Focus**: Diagnostic commands are read-only by default
+- **Timeout Protection**: Commands have timeouts to prevent hanging
+- **eBPF Safety**: eBPF programs are verified by kernel, read-only, and time-limited
+- **Secure Token Storage**: Tokens stored with 0600 permissions in `/var/lib/nannyagent/`
+- **OAuth Authentication**: OAuth 2.0 Device Flow
+- **TLS/HTTPS**: All API communication over HTTPS
+- **No Shell Injection**: Commands constructed safely without shell expansion
+- **Patch Validation**: SHA256 hash validation before script execution
+- **Root Privilege Checks**: Validated at startup with clear error messages
 
 ## System Metrics Collection
 
@@ -340,12 +333,12 @@ The AI automatically requests appropriate eBPF monitoring based on the issue typ
 Secure script execution for system remediation:
 
 **Features:**
-- ✅ SHA256 validation before execution
-- ✅ Dry-run mode for testing changes
-- ✅ Host and LXC container execution
-- ✅ Output capture (stdout/stderr)
-- ✅ Package list tracking
-- ✅ Automatic cleanup
+- SHA256 validation before execution
+- Dry-run mode for testing changes
+- Host and LXC container execution
+- Output capture (stdout/stderr)
+- Package list tracking
+- Automatic cleanup
 
 **Execution Flow:**
 1. Receive patch operation via SSE

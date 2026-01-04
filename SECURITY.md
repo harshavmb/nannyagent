@@ -7,7 +7,7 @@
 
 ## Reporting Security Vulnerabilities
 
-The NannyAI team takes security seriously. We appreciate your efforts to responsibly disclose your findings.
+We take security seriously. We appreciate your efforts to responsibly disclose your findings.
 
 ### How to Report a Security Issue
 
@@ -32,10 +32,10 @@ To help us better understand and address the issue, please include:
 
 ### What to Expect
 
-- **Acknowledgment**: We'll acknowledge receipt of your vulnerability report within 2 business days
-- **Initial assessment**: We'll provide an initial assessment within 5 business days
+- **Acknowledgment**: We'll acknowledge receipt of your vulnerability report
+- **Initial assessment**: We'll provide an initial assessment
 - **Regular updates**: We'll keep you informed of progress toward a fix
-- **Fix timeline**: We aim to release fixes for critical vulnerabilities within 30 days
+- **Fix timeline**: We aim to release fixes for critical vulnerabilities as soon as we can
 - **Credit**: We'll credit you in the security advisory (unless you prefer to remain anonymous)
 
 ## Security Best Practices
@@ -51,7 +51,7 @@ Always use the latest version:
 nannyagent --version
 
 # Download latest release
-wget https://github.com/nannyagent/nannyagent/releases/latest/download/nannyagent-linux-amd64
+wget https://github.com/nannyagent/nannyagent/releases/latest/download/nannyagent_<version>_linux_arm64.tar.gz
 ```
 
 #### 2. Secure Configuration
@@ -85,9 +85,8 @@ While NannyAgent requires root for eBPF functionality, you should:
 **Use TLS/HTTPS only:**
 
 ```yaml
-# config.yaml - always use HTTPS endpoints
-nannyapi_url: https://api.nannyai.dev  # ✓ Secure
-# nannyapi_url: http://api.nannyai.dev  # ✗ Insecure
+# config.yaml
+nannyapi_url: https://api.nannyai.dev
 ```
 
 **Firewall rules:**
@@ -109,18 +108,6 @@ Before running custom eBPF scripts:
 ### For Developers
 
 #### 1. Secure Coding Practices
-
-**Input Validation:**
-
-```go
-// Always validate external inputs
-func validateScriptURL(url string) error {
-    if !strings.HasPrefix(url, "https://") {
-        return fmt.Errorf("only HTTPS URLs are allowed")
-    }
-    return nil
-}
-```
 
 **Command Execution:**
 
@@ -217,7 +204,7 @@ All security-sensitive code must be reviewed:
 
 #### 4. Patch Script Validation
 
-- **SHA256 verification**: Scripts validated before execution
+- **SHA256 verification**: Scripts validated before execution to ensure they are tampered from source
 - **HTTPS-only downloads**: TLS encryption for script retrieval
 - **Temporary isolation**: Scripts executed in isolated temp directories
 - **Permission restrictions**: Scripts run with minimal required permissions

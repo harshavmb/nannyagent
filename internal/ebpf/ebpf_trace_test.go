@@ -55,7 +55,7 @@ func TestBCCTracing(t *testing.T) {
 			},
 		}
 
-		fmt.Printf("🔍 Testing BCC-style parsing:\n")
+		fmt.Printf("Testing BCC-style parsing:\n")
 		for _, tc := range testCases {
 			spec, err := parser.ParseFromBCCStyle(tc.input)
 			if err != nil {
@@ -75,7 +75,7 @@ func TestBCCTracing(t *testing.T) {
 
 	// Test 3: Validate trace specifications
 	t.Run("ValidateSpecs", func(t *testing.T) {
-		fmt.Printf("✅ Testing trace specification validation:\n")
+		fmt.Printf("Testing trace specification validation:\n")
 
 		// Valid spec
 		validSpec := TraceSpec{
@@ -108,7 +108,7 @@ func TestBCCTracing(t *testing.T) {
 
 	// Test 4: Simulate agent response format
 	t.Run("SimulateAgentResponse", func(t *testing.T) {
-		fmt.Printf("🤖 Simulating agent response for BCC-style tracing:\n")
+		fmt.Printf("Simulating agent response for BCC-style tracing:\n")
 
 		// Get a test specification
 		testSpec, exists := GetTestSpec("test_sys_open")
@@ -266,11 +266,11 @@ func TestTraceManagerCapabilities(t *testing.T) {
 	manager := NewBCCTraceManager()
 	caps := manager.GetCapabilities()
 
-	fmt.Printf("🔧 Trace Manager Capabilities:\n")
+	fmt.Printf("Trace Manager Capabilities:\n")
 	for capability, available := range caps {
-		status := "❌ Not Available"
+		status := "Not Available"
 		if available {
-			status = "✅ Available"
+			status = "Available"
 		}
 		fmt.Printf("   %s: %s\n", capability, status)
 	}
@@ -341,7 +341,7 @@ func TestSyscallSuggestions(t *testing.T) {
 		},
 	}
 
-	fmt.Printf("💡 Testing syscall suggestions:\n")
+	fmt.Printf("Testing syscall suggestions:\n")
 	for _, tc := range testCases {
 		suggestions := SuggestSyscallTargets(tc.issue)
 		fmt.Printf("   Issue: '%s' -> %d suggestions: %v\n",
@@ -357,7 +357,7 @@ func TestSyscallSuggestions(t *testing.T) {
 
 // TestMain runs the tests and provides a summary
 func TestMain(m *testing.M) {
-	fmt.Println("🚀 Starting BCC-Style eBPF Tracing Tests")
+	fmt.Println("Starting BCC-Style eBPF Tracing Tests")
 	fmt.Println("========================================")
 	fmt.Println()
 
@@ -383,9 +383,9 @@ func TestMain(m *testing.M) {
 	fmt.Println()
 	fmt.Println("========================================")
 	if code == 0 {
-		fmt.Println("✅ All BCC-Style eBPF Tracing Tests Passed!")
+		fmt.Println("All BCC-Style eBPF Tracing Tests Passed!")
 	} else {
-		fmt.Println("❌ Some tests failed")
+		fmt.Println("Some tests failed")
 	}
 
 	os.Exit(code)
@@ -402,28 +402,28 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 		return
 	}
 
-	fmt.Println("✅ Running as root - can test actual eBPF functionality")
+	fmt.Println("Running as root - can test actual eBPF functionality")
 
 	// Test 1: Create BCC trace manager and check capabilities
 	manager := NewBCCTraceManager()
 	caps := manager.GetCapabilities()
 
-	fmt.Printf("🔍 BCC Trace Manager Capabilities:\n")
+	fmt.Printf("BCC Trace Manager Capabilities:\n")
 	for cap, available := range caps {
-		status := "❌"
+		status := "unavailable"
 		if available {
-			status = "✅"
+			status = "available"
 		}
 		fmt.Printf("   %s %s: %v\n", status, cap, available)
 	}
 
 	// Require essential capabilities
 	if !caps["bpftrace"] {
-		t.Fatal("❌ bpftrace not available - install bpftrace package")
+		t.Fatal("bpftrace not available - install bpftrace package")
 	}
 
 	if !caps["root_access"] {
-		t.Fatal("❌ Root access not detected")
+		t.Fatal("Root access not detected")
 	}
 
 	// Test 2: Create and execute a simple trace
@@ -437,14 +437,14 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 		Duration:  3,          // 3 seconds
 	}
 
-	fmt.Printf("📝 Starting trace: %s for %d seconds\n", spec.Target, spec.Duration)
+	fmt.Printf("Starting trace: %s for %d seconds\n", spec.Target, spec.Duration)
 
 	traceID, err := manager.StartTrace(spec)
 	if err != nil {
-		t.Fatalf("❌ Failed to start trace: %v", err)
+		t.Fatalf("Failed to start trace: %v", err)
 	}
 
-	fmt.Printf("🚀 Trace started with ID: %s\n", traceID)
+	fmt.Printf("Trace started with ID: %s\n", traceID)
 
 	// Generate some file access to capture
 	go func() {
@@ -471,10 +471,10 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 	if err != nil {
 		// Try to stop the trace if it's still running
 		_ = manager.StopTrace(traceID)
-		t.Fatalf("❌ Failed to get trace results: %v", err)
+		t.Fatalf("Failed to get trace results: %v", err)
 	}
 
-	fmt.Printf("\n📊 Trace Results Summary:\n")
+	fmt.Printf("\nTrace Results Summary:\n")
 	fmt.Printf("   • Trace ID: %s\n", result.TraceID)
 	fmt.Printf("   • Target: %s\n", result.Spec.Target)
 	fmt.Printf("   • Duration: %v\n", result.EndTime.Sub(result.StartTime))
@@ -483,7 +483,7 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 	fmt.Printf("   • Summary: %s\n", result.Summary)
 
 	if len(result.Events) > 0 {
-		fmt.Printf("\n📝 Sample Events (first 3):\n")
+		fmt.Printf("\nSample Events (first 3):\n")
 		for i, event := range result.Events {
 			if i >= 3 {
 				break
@@ -501,7 +501,7 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 	if result.EventCount == 0 {
 		fmt.Println(" Warning: No events captured - this might be normal for a quiet system")
 	} else {
-		fmt.Printf("✅ Successfully captured %d real eBPF events!\n", result.EventCount)
+		fmt.Printf("Successfully captured %d real eBPF events!\n", result.EventCount)
 	}
 
 	fmt.Println("\n🧪 Testing comprehensive system tracing (Network, Disk, CPU, Memory, Userspace)...")
@@ -598,11 +598,11 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 			category = "memory"
 		}
 
-		fmt.Printf("\n   🔍 Test %d: [%s] Tracing %s for %d seconds\n", i+1, category, testSpec.Target, testSpec.Duration)
+		fmt.Printf("\n   Test %d: [%s] Tracing %s for %d seconds\n", i+1, category, testSpec.Target, testSpec.Duration)
 
 		testTraceID, err := manager.StartTrace(testSpec)
 		if err != nil {
-			fmt.Printf("   ❌ Failed to start: %v\n", err)
+			fmt.Printf("   Failed to start: %v\n", err)
 			continue
 		}
 
@@ -695,7 +695,7 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 			continue
 		}
 
-		fmt.Printf("   📊 Results for %s:\n", testSpec.Target)
+		fmt.Printf("   Results for %s:\n", testSpec.Target)
 		fmt.Printf("      • Total events: %d\n", testResult.EventCount)
 		fmt.Printf("      • Events/sec: %.2f\n", testResult.Statistics.EventsPerSecond)
 		fmt.Printf("      • Duration: %v\n", testResult.EndTime.Sub(testResult.StartTime))
@@ -728,14 +728,14 @@ func TestBCCTraceManagerRootTest(t *testing.T) {
 		}
 
 		if testResult.EventCount > 0 {
-			fmt.Printf("   ✅ Success: Captured %d real syscall events!\n", testResult.EventCount)
+			fmt.Printf("   Success: Captured %d real syscall events!\n", testResult.EventCount)
 		} else {
 			fmt.Printf("    No events captured (may be normal for this syscall)\n")
 		}
 	}
 
 	fmt.Println("\n🎉 BCC Trace Manager Root Test Complete!")
-	fmt.Println("✅ Real eBPF tracing is working and ready for production use!")
+	fmt.Println("Real eBPF tracing is working and ready for production use!")
 }
 
 // TestAgentEBPFIntegration tests the agent's integration with BCC-style eBPF tracing
@@ -787,7 +787,7 @@ func TestAgentEBPFIntegration(t *testing.T) {
 		},
 	}
 
-	fmt.Printf("🚀 Testing eBPF manager with %d eBPF programs...\n\n", len(testEBPFRequests))
+	fmt.Printf("Testing eBPF manager with %d eBPF programs...\n\n", len(testEBPFRequests))
 
 	// Convert to trace specs and execute using manager directly
 	var traceSpecs []TraceSpec
@@ -831,12 +831,12 @@ func TestAgentEBPFIntegration(t *testing.T) {
 		results = append(results, result)
 	}
 
-	fmt.Printf("📊 Agent eBPF Execution Results:\n")
+	fmt.Printf("Agent eBPF Execution Results:\n")
 	fmt.Println(strings.Repeat("=", 51))
 	fmt.Println()
 
 	for i, result := range results {
-		fmt.Printf("🔍 Program %d: %s\n", i+1, result["name"])
+		fmt.Printf("Program %d: %s\n", i+1, result["name"])
 		fmt.Printf("   Target: %s\n", result["target"])
 		fmt.Printf("   Type: %s\n", result["type"])
 		fmt.Printf("   Status: %s\n", result["status"])
@@ -917,6 +917,6 @@ func TestAgentEBPFIntegration(t *testing.T) {
 		}
 	})
 
-	fmt.Println("✅ Agent eBPF Integration Test Complete!")
-	fmt.Println("📈 The agent correctly processes eBPF requests and returns detailed syscall data!")
+	fmt.Println("Agent eBPF Integration Test Complete!")
+	fmt.Println("The agent correctly processes eBPF requests and returns detailed syscall data!")
 }

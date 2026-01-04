@@ -30,7 +30,7 @@ NannyAgent communicates with the NannyAPI backend using multiple protocols:
 ```bash
 NANNYAPI_URL=https://api.nannyai.dev  # Production
 # or
-NANNYAPI_URL=http://localhost:3000    # Development
+NANNYAPI_URL=http://localhost:8090    # Development
 ```
 
 ## Authentication

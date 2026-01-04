@@ -82,13 +82,13 @@ wget -qO- https://raw.githubusercontent.com/nannyagent/nannyagent/main/install.s
 ```
 
 This will:
-1. ✅ Check system requirements (kernel version, architecture)
-2. ✅ Install dependencies (bpftrace, unzip)
-3. ✅ Download latest pre-built binary
-4. ✅ Install to `/usr/sbin/nannyagent`
-5. ✅ Create configuration directory `/etc/nannyagent/`
-6. ✅ Install systemd service
-7. ✅ Create data directory `/var/lib/nannyagent/`
+1. Check system requirements (kernel version, architecture)
+2. Install dependencies (bpftrace, unzip)
+3. Download latest pre-built binary
+4. Install to `/usr/sbin/nannyagent`
+5. Create configuration directory `/etc/nannyagent/`
+6. Install systemd service
+7. Create data directory `/var/lib/nannyagent/`
 
 ## Installation Methods
 
@@ -108,7 +108,7 @@ curl -fsSL https://raw.githubusercontent.com/nannyagent/nannyagent/main/install.
 ### Method 2: Build from Source
 
 **Prerequisites:**
-- Go 1.21 or higher
+- Go 1.24 or higher
 - Git
 
 **Steps:**
