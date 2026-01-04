@@ -51,7 +51,7 @@ Always use the latest version:
 nannyagent --version
 
 # Download latest release
-wget https://github.com/nannyagent/nannyagent/releases/latest/download/nannyagent_<version>_linux_arm64.tar.gz
+curl -fsSL https://raw.githubusercontent.com/nannyagent/nannyagent/main/install.sh | sudo bash ## installer script bumps version automatically
 ```
 
 #### 2. Secure Configuration
@@ -204,7 +204,7 @@ All security-sensitive code must be reviewed:
 
 #### 4. Patch Script Validation
 
-- **SHA256 verification**: Scripts validated before execution to ensure they are tampered from source
+- **SHA256 verification**: Scripts validated before execution to ensure they have not been tampered with at the source
 - **HTTPS-only downloads**: TLS encryption for script retrieval
 - **Temporary isolation**: Scripts executed in isolated temp directories
 - **Permission restrictions**: Scripts run with minimal required permissions
