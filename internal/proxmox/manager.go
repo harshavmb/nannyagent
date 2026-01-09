@@ -3,7 +3,6 @@ package proxmox
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"sync"
 	"time"
 
@@ -14,7 +13,7 @@ import (
 
 // Authenticator defines the interface for authenticated requests
 type Authenticator interface {
-	AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error)
+	AuthenticatedRequest(method, url string, body []byte, headers map[string]string) (int, []byte, error)
 }
 
 type Manager struct {
@@ -139,15 +138,13 @@ func (m *Manager) sendData(endpoint string, data interface{}) error {
 	}
 
 	url := fmt.Sprintf("%s%s", m.config.APIBaseURL, endpoint)
-	resp, err := m.auth.AuthenticatedDo("POST", url, jsonData, nil)
+	statusCode, _, err := m.auth.AuthenticatedRequest("POST", url, jsonData, nil)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
 
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("server returned status %d", resp.StatusCode)
+	if statusCode >= 400 {
+		return fmt.Errorf("server returned status %d", statusCode)
 	}
 
 	return nil

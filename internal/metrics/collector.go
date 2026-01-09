@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"os"
@@ -301,7 +300,7 @@ func (c *Collector) getAllIPs() []string {
 // IngestMetrics sends system metrics to NannyAPI /api/agent endpoint
 // agentID is required for upsert operation - metrics will be updated for same agent
 func (c *Collector) IngestMetrics(agentID string, authManager interface {
-	AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error)
+	AuthenticatedRequest(method, url string, body []byte, headers map[string]string) (int, []byte, error)
 }, systemMetrics *types.SystemMetrics) error {
 	logging.Debug("Ingesting metrics for agent %s", agentID)
 
@@ -332,25 +331,19 @@ func (c *Collector) IngestMetrics(agentID string, authManager interface {
 	// Send request to NannyAPI /api/agent endpoint with authorization
 	url := fmt.Sprintf("%s/api/agent", c.apiBaseURL)
 
-	resp, err := authManager.AuthenticatedDo("POST", url, jsonData, nil)
+	statusCode, body, err := authManager.AuthenticatedRequest("POST", url, jsonData, nil)
 	if err != nil {
 		return fmt.Errorf("failed to send metrics: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
-	}
 
 	// Check for authorization errors
-	if resp.StatusCode == http.StatusUnauthorized {
+	if statusCode == http.StatusUnauthorized {
 		return fmt.Errorf("metrics ingestion failed: unauthorized - token may be expired")
 	}
 
 	// Check for other errors
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("metrics ingestion failed with status %d: %s", resp.StatusCode, string(body))
+	if statusCode != http.StatusOK && statusCode != http.StatusCreated && statusCode != http.StatusNoContent {
+		return fmt.Errorf("metrics ingestion failed with status %d: %s", statusCode, string(body))
 	}
 
 	// Parse response
@@ -359,12 +352,12 @@ func (c *Collector) IngestMetrics(agentID string, authManager interface {
 		// If response doesn't parse as IngestMetricsResponse, check for generic error
 		logging.Warning("Could not parse metrics response: %v", err)
 		// Still consider it a success if status was OK
-		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
+		if statusCode == http.StatusOK || statusCode == http.StatusCreated {
 			logging.Debug("Metrics ingested successfully (unparsed response)")
 			return nil
 		}
 		// If status is not OK and response didn't parse, it's an error
-		return fmt.Errorf("metrics ingestion failed with status %d: invalid response format", resp.StatusCode)
+		return fmt.Errorf("metrics ingestion failed with status %d: invalid response format", statusCode)
 	}
 
 	if !metricsResp.Success {

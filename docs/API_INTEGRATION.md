@@ -854,7 +854,7 @@ Content-Type: text/plain
 }
 ```
 
-### Retry Strategy
+### Retry Strategy (TO-BE-ADDED with exponential backoff)
 
 **Exponential Backoff:**
 ```text

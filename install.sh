@@ -441,6 +441,16 @@ create_directories() {
 # Install the binary
 install_binary() {
     log_info "Installing binary to $INSTALL_DIR..."
+
+    # Check if service handles executable busy
+    WAS_RUNNING=0
+    if command -v systemctl &> /dev/null; then
+        if systemctl is-active --quiet nannyagent; then
+            log_info "Stopping running nannyagent service to update binary..."
+            systemctl stop nannyagent
+            WAS_RUNNING=1
+        fi
+    fi
     
     # Copy binary
     cp "$BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME" || {
@@ -491,6 +501,16 @@ EOF
     echo "Installed at $(date)" > "$LOCKFILE"
     
     log_success "Binary installed successfully"
+
+    # Restart service if it was running
+    if [ "$WAS_RUNNING" -eq 1 ]; then
+        log_info "Restarting nannyagent service..."
+        systemctl start nannyagent || {
+            log_error "Failed to restart nannyagent service!"
+            systemctl status nannyagent --no-pager
+            # We don't exit here, as installation was technically successful
+        }
+    fi
 }
 
 # Install systemd service
@@ -582,7 +602,7 @@ post_install_info() {
     echo "     sudo systemctl enable --now nannyagent"
     echo ""
     echo "  4. Check agent status:"
-    echo "     nannyagent --status"
+    echo "     sudo nannyagent --status"
     echo "     sudo systemctl status nannyagent"
     echo ""
     echo "  5. Run a one-off diagnosis:"

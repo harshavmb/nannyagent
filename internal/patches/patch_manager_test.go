@@ -3,6 +3,7 @@ package patches
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,6 +30,21 @@ func (m *MockAuthManager) AuthenticatedDo(method, url string, body []byte, heade
 	req.Header.Set("Authorization", "Bearer "+m.Token)
 
 	return http.DefaultClient.Do(req)
+}
+
+func (m *MockAuthManager) AuthenticatedRequest(method, url string, body []byte, headers map[string]string) (int, []byte, error) {
+	resp, err := m.AuthenticatedDo(method, url, body, headers)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+
+	return resp.StatusCode, respBody, nil
 }
 
 func TestPatchManager_DownloadScript(t *testing.T) {
