@@ -599,6 +599,8 @@ func (am *AuthManager) AuthenticatedDo(method, url string, body []byte, headers 
 		resp, err := am.client.Do(req)
 		if err != nil {
 			lastErr = err
+			logging.Debug("Request failed (attempt %d): %v. Resetting connection pool.", attempt, err)
+			am.client.CloseIdleConnections()
 			time.Sleep(60 * time.Second)
 			continue
 		}
@@ -650,6 +652,46 @@ func (am *AuthManager) AuthenticatedDo(method, url string, body []byte, headers 
 	}
 
 	return nil, fmt.Errorf("request failed after 5 attempts: %v", lastErr)
+}
+
+// AuthenticatedRequest performs an authenticated request and returns the status code and response body.
+// It handles token refresh, localized retries, AND connection resets on failure.
+// usage: Prefer this over AuthenticatedDo when you need to read the full body string/JSON.
+func (am *AuthManager) AuthenticatedRequest(method, url string, body []byte, headers map[string]string) (int, []byte, error) {
+	var lastErr error
+	maxRetries := 3
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Use AuthenticatedDo for the request (handles 401s, 500s, and transport errors during request)
+		resp, err := am.AuthenticatedDo(method, url, body, headers)
+		if err != nil {
+			// AuthenticatedDo has its own retry logic, so if it fails, it's a hard fail
+			return 0, nil, err
+		}
+
+		statusCode := resp.StatusCode
+		// Read the body
+		respBody, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+
+		if readErr == nil {
+			return statusCode, respBody, nil
+		}
+
+		// Handle read error (e.g. http2: response body closed)
+		lastErr = readErr
+		logging.Warning("Failed to read response body (attempt %d/%d): %v. Resetting connection pool.", attempt, maxRetries, readErr)
+
+		// Force close connections to clear bad state
+		am.client.CloseIdleConnections()
+
+		// Wait before retry
+		if attempt < maxRetries {
+			time.Sleep(5 * time.Second)
+		}
+	}
+
+	return 0, nil, fmt.Errorf("failed to read response after %d attempts: %w", maxRetries, lastErr)
 }
 
 // Helper functions

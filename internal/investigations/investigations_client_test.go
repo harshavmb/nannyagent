@@ -9,8 +9,20 @@ import (
 	"nannyagent/internal/types"
 )
 
-func TestInvestigationsClient_CreateInvestigation(t *testing.T) {
-	client := NewInvestigationsClient("http://127.0.0.1:8090")
+type MockAuthenticator struct {
+	AuthenticatedRequestFunc func(method, url string, body []byte, headers map[string]string) (int, []byte, error)
+}
+
+func (m *MockAuthenticator) AuthenticatedRequest(method, url string, body []byte, headers map[string]string) (int, []byte, error) {
+	if m.AuthenticatedRequestFunc != nil {
+		return m.AuthenticatedRequestFunc(method, url, body, headers)
+	}
+	return 200, []byte("{}"), nil
+}
+
+func TestInvestigationsClient_New(t *testing.T) {
+	auth := &MockAuthenticator{}
+	client := NewInvestigationsClient("http://127.0.0.1:8090", auth)
 
 	if client == nil {
 		t.Fatal("client should not be nil")
@@ -20,12 +32,8 @@ func TestInvestigationsClient_CreateInvestigation(t *testing.T) {
 		t.Errorf("expected baseURL to be http://127.0.0.1:8090, got %s", client.baseURL)
 	}
 
-	if client.client == nil {
-		t.Fatal("http client should not be nil")
-	}
-
-	if client.client.Timeout != 5*time.Minute {
-		t.Errorf("expected timeout to be 5m, got %v", client.client.Timeout)
+	if client.authManager != auth {
+		t.Fatal("authManager should be set")
 	}
 }
 
@@ -228,14 +236,5 @@ func TestInvestigationsClient_MultipleStatuses(t *testing.T) {
 		if str == "" {
 			t.Errorf("status %d should convert to non-empty string", i)
 		}
-	}
-}
-
-// TestInvestigationsClient_Timeout tests that client has proper timeout
-func TestInvestigationsClient_Timeout(t *testing.T) {
-	client := NewInvestigationsClient("http://127.0.0.1:8090")
-
-	if client.client.Timeout != 5*time.Minute {
-		t.Errorf("expected client timeout to be 5 minutes, got %v", client.client.Timeout)
 	}
 }

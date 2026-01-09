@@ -1,8 +1,6 @@
 package proxmox
 
 import (
-	"bytes"
-	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -13,17 +11,14 @@ import (
 
 // MockAuthenticator implements Authenticator interface
 type MockAuthenticator struct {
-	DoFunc func(method, url string, body []byte, headers map[string]string) (*http.Response, error)
+	RequestFunc func(method, url string, body []byte, headers map[string]string) (int, []byte, error)
 }
 
-func (m *MockAuthenticator) AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error) {
-	if m.DoFunc != nil {
-		return m.DoFunc(method, url, body, headers)
+func (m *MockAuthenticator) AuthenticatedRequest(method, url string, body []byte, headers map[string]string) (int, []byte, error) {
+	if m.RequestFunc != nil {
+		return m.RequestFunc(method, url, body, headers)
 	}
-	return &http.Response{
-		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(bytes.NewBufferString("{}")),
-	}, nil
+	return http.StatusOK, []byte("{}"), nil
 }
 
 // MockManagerExecutor implements CommandExecutor interface
@@ -114,7 +109,7 @@ func TestManager_collectAndSend(t *testing.T) {
 
 	sentData := make(map[string]bool)
 	mockAuth := &MockAuthenticator{
-		DoFunc: func(method, url string, body []byte, headers map[string]string) (*http.Response, error) {
+		RequestFunc: func(method, url string, body []byte, headers map[string]string) (int, []byte, error) {
 			if method == "POST" {
 				if strings.Contains(url, "/api/proxmox/node") {
 					sentData["node"] = true
@@ -126,10 +121,7 @@ func TestManager_collectAndSend(t *testing.T) {
 					sentData["qemu"] = true
 				}
 			}
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(bytes.NewBufferString("{}")),
-			}, nil
+			return http.StatusOK, []byte("{}"), nil
 		},
 	}
 

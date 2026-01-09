@@ -27,6 +27,7 @@ type PatchManager struct {
 	baseURL     string
 	authManager interface {
 		AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error)
+		AuthenticatedRequest(method, url string, body []byte, headers map[string]string) (int, []byte, error)
 	}
 	agentID string
 }
@@ -34,6 +35,7 @@ type PatchManager struct {
 // NewPatchManager creates a new patch manager
 func NewPatchManager(baseURL string, authManager interface {
 	AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error)
+	AuthenticatedRequest(method, url string, body []byte, headers map[string]string) (int, []byte, error)
 }, agentID string) *PatchManager {
 	return &PatchManager{
 		baseURL:     baseURL,
@@ -311,16 +313,13 @@ func (pm *PatchManager) uploadResults(operationID string, exitCode int, stdout, 
 		"Content-Type": writer.FormDataContentType(),
 	}
 
-	resp, err := pm.authManager.AuthenticatedDo("POST", url, body.Bytes(), headers)
+	statusCode, respBody, err := pm.authManager.AuthenticatedRequest("POST", url, body.Bytes(), headers)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		// Read body for error message
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to upload results (status %d): %s", resp.StatusCode, string(respBody))
+	if statusCode != http.StatusOK {
+		return fmt.Errorf("failed to upload results (status %d): %s", statusCode, string(respBody))
 	}
 
 	logging.Info("Patch results uploaded successfully for operation %s", operationID)
