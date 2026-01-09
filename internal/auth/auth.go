@@ -551,7 +551,7 @@ func (am *AuthManager) GetCurrentAccessToken() (string, error) {
 func (am *AuthManager) AuthenticatedDo(method, url string, body []byte, headers map[string]string) (*http.Response, error) {
 	var lastErr error
 
-	for attempt := 1; attempt <= 6; attempt++ {
+	for attempt := 1; attempt <= 5; attempt++ {
 		// Load token (raw, ignoring expiration check to allow refresh flow)
 		token, err := am.loadTokenRaw()
 		if err != nil {
@@ -672,12 +672,17 @@ func (am *AuthManager) AuthenticatedRequest(method, url string, body []byte, hea
 
 		statusCode := resp.StatusCode
 		// Read the body
+		// We use a specific pattern here: read fully, then close immediately.
+		// Use io.ReadAll to ensure we get everything or fail trying.
 		respBody, readErr := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 
 		if readErr == nil {
 			return statusCode, respBody, nil
 		}
+
+		// If read failed, the status code may be valid but the response is unusable.
+		// We discard the status code for this attempt since we are retrying.
 
 		// Handle read error (e.g. http2: response body closed)
 		lastErr = readErr

@@ -1144,7 +1144,7 @@ The agent implements a robust **Self-Healing Connectivity** pattern to handle ne
 - **Automatic Token Refresh**: 401 Unauthorized responses trigger an immediate token refresh and request retry.
 - **Connection Pool Management**: Transport-level errors (like `http2: response body closed`) trigger a reset of the HTTP connection pool (`CloseIdleConnections`), preventing subsequent requests from failing on dead connections.
 - **Atomic Request/Read**: The `AuthenticatedRequest` pattern ensures that both the request execution and response body reading are protected by the retry loop, handling cases where the server sends headers but drops the connection during body transmission.
-- **Exponential Backoff**: Retries use jittered backoff to prevent thundering herd effects on the server.
+- **Fixed Retry Delays**: Retries use fixed wait intervals (for example, 5 seconds in `AuthenticatedRequest` and 60 seconds in `AuthenticatedDo`) between attempts to reduce load on the server.
 
 ---
 
