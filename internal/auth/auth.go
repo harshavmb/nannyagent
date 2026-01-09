@@ -48,7 +48,8 @@ func NewAuthManager(cfg *config.Config) *AuthManager {
 		config:  cfg,
 		baseURL: baseURL,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			// Increased default timeout for investigations/LLM responses
+			Timeout: 5 * time.Minute,
 		},
 	}
 }
@@ -680,7 +681,12 @@ func (am *AuthManager) AuthenticatedRequest(method, url string, body []byte, hea
 
 		// Handle read error (e.g. http2: response body closed)
 		lastErr = readErr
-		logging.Warning("Failed to read response body (attempt %d/%d): %v. Resetting connection pool.", attempt, maxRetries, readErr)
+		// Only log aggressive connection resets at Debug level unless it's the final attempt
+		if attempt < maxRetries {
+			logging.Debug("Failed to read response body (attempt %d/%d): %v. Resetting connection pool.", attempt, maxRetries, readErr)
+		} else {
+			logging.Warning("Failed to read response body (attempt %d/%d): %v. Connection pool reset failed to resolve issue.", attempt, maxRetries, readErr)
+		}
 
 		// Force close connections to clear bad state
 		am.client.CloseIdleConnections()
