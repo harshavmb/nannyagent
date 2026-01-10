@@ -315,73 +315,6 @@ download_binary() {
     fi
 }
 
-# Check Go installation
-check_go() {
-    log_info "Checking for Go installation..."
-    
-    if ! command -v go &> /dev/null; then
-        log_error "Go is not installed"
-        log_error "Please install Go 1.23 or higher from https://golang.org/dl/"
-        exit 9
-    fi
-    
-    GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
-    log_info "Go version: $GO_VERSION"
-    log_success "Go is installed"
-}
-
-# Build the binary
-build_binary() {
-    log_info "Building NannyAgent binary for $ARCH architecture..."
-    
-    # Check if go.mod exists
-    if [ ! -f "go.mod" ]; then
-        log_error "go.mod not found. Are you in the correct directory?"
-        exit 9
-    fi
-    
-    # Read version from VERSION file
-    if [ -f "VERSION" ]; then
-        BUILD_VERSION=$(cat VERSION)
-    else
-        BUILD_VERSION="dev"
-    fi
-    log_info "Building version: $BUILD_VERSION"
-    
-    # Get Go dependencies
-    log_info "Downloading Go dependencies..."
-    go mod download || {
-        log_error "Failed to download Go dependencies"
-        exit 9
-    }
-    
-    # Build the binary for the current architecture
-    log_info "Compiling binary for $ARCH..."
-    CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" go build -a -installsuffix cgo \
-        -ldflags "-w -s -X main.Version=$BUILD_VERSION" \
-        -o "$BINARY_NAME" . || {
-        log_error "Failed to build binary for $ARCH"
-        exit 9
-    }
-    
-    # Verify binary was created
-    if [ ! -f "$BINARY_NAME" ]; then
-        log_error "Binary not found after build"
-        exit 9
-    fi
-    
-    # Verify binary is executable
-    chmod +x "$BINARY_NAME"
-    
-    # Test the binary
-    if ./"$BINARY_NAME" --version &>/dev/null; then
-        log_success "Binary built and tested successfully for $ARCH (version: $BUILD_VERSION)"
-    else
-        log_error "Binary build succeeded but execution test failed"
-        exit 9
-    fi
-}
-
 # Check connectivity to NannyAPI
 check_connectivity() {
     log_info "Checking connectivity to NannyAPI..."
@@ -629,17 +562,7 @@ main() {
     check_existing_installation
     install_dependencies
     create_directories
-    
-    # Download pre-built binary or build from source
-    if [ "$INSTALL_FROM_SOURCE" = "true" ] || [ -f "go.mod" ]; then
-        log_info "Building from source..."
-        check_go
-        build_binary
-    else
-        log_info "Downloading pre-built binary..."
-        download_binary
-    fi
-    
+    download_binary
     check_connectivity
     install_binary
     install_systemd_service

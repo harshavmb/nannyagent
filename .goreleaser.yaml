@@ -28,9 +28,6 @@ archives:
       {{ .ProjectName }}_{{ .Version}}_{{ .Os }}_{{ .Arch }}
     files:
       - LICENSE
-      - README.md
-      - config.yaml.example
-      - nannyagent.service
       - install.sh
 
 checksum:
